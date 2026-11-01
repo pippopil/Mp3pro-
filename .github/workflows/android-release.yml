@@ -1,0 +1,125 @@
+name: Build & Release Android Beta / Production
+
+on:
+  push:
+    tags:
+      - 'v*' # Срабатывает при создании тега, например: v1.0.0-beta01, v1.0.0, v2.0-rc1
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Имя версии для сборки (напр. 1.0.0-beta01)'
+        required: true
+        default: '1.0.0-beta01'
+      is_prerelease:
+        description: 'Пометить как предрелиз (Beta)?'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android Release APK & AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: ⚙️ Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 🔑 Ensure Gradle wrapper is ready
+        run: |
+          if [ ! -f ./gradlew ]; then
+            gradle wrapper --gradle-version 8.7
+          fi
+          chmod +x ./gradlew
+
+      - name: 🏷️ Determine Version Name
+        id: version_step
+        run: |
+          if [ -n "${{ github.event.inputs.version_name }}" ]; then
+            VER="${{ github.event.inputs.version_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER="1.0.0-beta${{ github.run_number }}"
+          fi
+          echo "VERSION_NAME=$VER" >> $GITHUB_ENV
+          echo "Determined version: $VER"
+
+      # Сборка Release APK и Android App Bundle (AAB для Google Play)
+      - name: 🔨 Build with Gradle
+        env:
+          VERSION_NAME: ${{ env.VERSION_NAME }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: ./gradlew assembleRelease bundleRelease --stacktrace
+
+      # Если настроена подпись через GitHub Secrets (или подпись debug-ключом для быстрого тестирования)
+      - name: ✍️ Sign Android Release APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        continue-on-error: true
+
+      - name: 📦 Rename APK with version
+        run: |
+          mkdir -p release-artifacts
+          # Если подписан, берем подписанный, иначе обычный релизный
+          if ls app/build/outputs/apk/release/*-signed.apk 1> /dev/null 2>&1; then
+            cp app/build/outputs/apk/release/*-signed.apk release-artifacts/MP3PlayerPro-${{ env.VERSION_NAME }}.apk
+          elif ls app/build/outputs/apk/release/*.apk 1> /dev/null 2>&1; then
+            cp app/build/outputs/apk/release/*.apk release-artifacts/MP3PlayerPro-${{ env.VERSION_NAME }}.apk
+          fi
+          # Копируем AAB для Google Play
+          if ls app/build/outputs/bundle/release/*.aab 1> /dev/null 2>&1; then
+            cp app/build/outputs/bundle/release/*.aab release-artifacts/MP3PlayerPro-${{ env.VERSION_NAME }}.aab
+          fi
+
+      - name: 🚀 Upload Artifacts to Job
+        uses: actions/upload-artifact@v4
+        with:
+          name: MP3PlayerPro-${{ env.VERSION_NAME }}
+          path: release-artifacts/*
+
+      # Автоматическое создание GitHub Release
+      - name: 🌐 Create GitHub Release with APK & AAB
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.is_prerelease != ''
+        with:
+          tag_name: ${{ github.ref_name || format('v{0}', env.VERSION_NAME) }}
+          name: MP3 Player Pro v${{ env.VERSION_NAME }} (Beta)
+          draft: false
+          prerelease: ${{ github.event.inputs.is_prerelease || true }}
+          files: release-artifacts/*
+          generate_release_notes: true
+          body: |
+            ### 📱 MP3 Player Pro — Бета-версия v${{ env.VERSION_NAME }}
+            
+            #### 📦 Файлы для тестирования:
+            * **APK (прямая установка на телефон):** `MP3PlayerPro-${{ env.VERSION_NAME }}.apk`
+            * **AAB (для Google Play Console):** `MP3PlayerPro-${{ env.VERSION_NAME }}.aab`
+            
+            #### ✨ Что нового в этой сборке:
+            * ⚡ **Equalizer & Bass Boost:** Аппаратный сабвуферный усилитель низких частот через Media3 AudioSessionID с динамическим хэдрумом (устранено затихание звука).
+            * 🐸 **Dancing Frog Visualizer:** Анимированный танцующий лягушонок на карточке играющего трека.
+            * 🔤 **Сортировка медиатеки:** По алфавиту (А-Я), исполнителям и альбомам.
+            * 🌐 **Онлайн загрузка:** Поиск и скачивание треков из сети напрямую в Scoped Storage (`/Music/`).
