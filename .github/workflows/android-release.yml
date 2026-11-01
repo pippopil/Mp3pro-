@@ -2,6 +2,8 @@ name: Build & Release Android Beta / Production
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*' # Срабатывает при создании тега, например: v1.0.0-beta01, v1.0.0, v2.0-rc1
   workflow_dispatch:
@@ -35,15 +37,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: ⚙️ Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: 🐘 Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
       - name: 🔑 Ensure Gradle wrapper is ready
         run: |
-          if [ ! -f ./gradlew ]; then
+          if [ ! -f ./gradlew ] || [ ! -f ./gradle/wrapper/gradle-wrapper.jar ]; then
             gradle wrapper --gradle-version 8.7
           fi
           chmod +x ./gradlew
@@ -103,12 +102,12 @@ jobs:
       # Автоматическое создание GitHub Release
       - name: 🌐 Create GitHub Release with APK & AAB
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.is_prerelease != ''
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         with:
           tag_name: ${{ github.ref_name || format('v{0}', env.VERSION_NAME) }}
           name: MP3 Player Pro v${{ env.VERSION_NAME }} (Beta)
           draft: false
-          prerelease: ${{ github.event.inputs.is_prerelease || true }}
+          prerelease: true
           files: release-artifacts/*
           generate_release_notes: true
           body: |
