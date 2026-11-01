@@ -1,6 +1,7 @@
 package com.tohsoft.music.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -87,6 +89,7 @@ fun MainPlayerScreen(
     onSetCoverStyle: (CoverStyle) -> Unit,
     onCycleCoverStyle: () -> Unit,
     onOpenYandexModal: () -> Unit,
+    onCloseYandexModal: () -> Unit = {},
     onSyncYandex: (String) -> Unit,
     onSearchCover: () -> Unit,
     onSelectGenreFilter: (String) -> Unit,
@@ -1864,7 +1867,7 @@ private fun formatMs(ms: Long): String {
 fun OnlineMusicSearchModal(
     onDismiss: () -> Unit,
     onDownload: (title: String, artist: String, url: String, genre: String, coverUrl: String) -> Unit,
-    downloadProgress: Float,
+    downloadProgress: Int,
     downloadMessage: String
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -1932,10 +1935,10 @@ fun OnlineMusicSearchModal(
                 singleLine = true
             )
 
-            if (downloadProgress > 0f) {
+            if (downloadProgress > 0) {
                 Spacer(Modifier.height(10.dp))
                 LinearProgressIndicator(
-                    progress = downloadProgress,
+                    progress = downloadProgress.toFloat() / 100f,
                     modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                     color = ColorTurquoise,
                     trackColor = Color(0xFF1E293B)

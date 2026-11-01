@@ -42,6 +42,7 @@ jobs:
 
       - name: 🔑 Ensure Gradle wrapper is ready
         run: |
+          rm -f local.properties
           if [ ! -f ./gradlew ] || [ ! -f ./gradle/wrapper/gradle-wrapper.jar ]; then
             gradle wrapper --gradle-version 8.7
           fi
