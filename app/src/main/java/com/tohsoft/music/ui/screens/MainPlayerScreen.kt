@@ -582,7 +582,7 @@ fun DancingFrogVisualizer(
         targetValue = if (isPlaying) -5f else 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 260, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
         ),
         label = "FrogBounce"
     )
@@ -593,7 +593,7 @@ fun DancingFrogVisualizer(
         targetValue = if (isPlaying) 12f else 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 260, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
         ),
         label = "FrogRotate"
     )
@@ -604,7 +604,7 @@ fun DancingFrogVisualizer(
         targetValue = if (isPlaying) 1f else 0.3f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 520, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
         ),
         label = "NoteAlpha"
     )
