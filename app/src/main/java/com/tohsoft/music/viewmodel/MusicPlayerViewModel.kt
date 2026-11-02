@@ -36,6 +36,7 @@ enum class TrackSortMode(val label: String) {
     TITLE_ASC("По названию (А-Я)"),
     ARTIST("По артисту"),
     ALBUM("По альбому"),
+    FOLDER("По папкам"),
     DURATION("По длительности")
 }
 
@@ -67,9 +68,14 @@ data class PlayerUiState(
     val gridAlbumView: Boolean = false,
     val hideShortSongs: Boolean = false,
     val isLoading: Boolean = true,
-    // Equalizer & Audio FX State
+    // Equalizer & Audio FX State (Poweramp Pro Dual-Mode)
     val isEqualizerOpen: Boolean = false,
     val isEqEnabled: Boolean = true,
+    val isParametricMode: Boolean = false,
+    val isAutoEqEnabled: Boolean = true,
+    val eqPreampDb: Float = 0.0f,
+    val isLimiterEnabled: Boolean = true,
+    val trebleLevel: Int = 35,
     val activeEqPreset: String = "Normal (Плоский)",
     val eqBands: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     val bassBoost: Int = 25,
@@ -280,6 +286,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     currentPositionMs = 0,
                     durationMs = song.durationMs
                 )
+            }
+
+            // Автоматический эквалайзер: подбор наилучшего пресета под жанр трека
+            if (_uiState.value.isAutoEqEnabled) {
+                autoApplyEqPresetForSong(song)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -598,8 +609,75 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             TrackSortMode.TITLE_ASC -> list.sortedBy { it.title.lowercase() }
             TrackSortMode.ARTIST -> list.sortedBy { it.artist.lowercase() }
             TrackSortMode.ALBUM -> list.sortedBy { it.album.lowercase() }
+            TrackSortMode.FOLDER -> list.sortedWith(compareBy({ it.folderName.lowercase() }, { it.title.lowercase() }))
             TrackSortMode.DURATION -> list.sortedByDescending { it.durationMs }
         }
+    }
+
+    private fun autoApplyEqPresetForSong(song: Song) {
+        val allPresets = EqualizerManager.PRESETS
+        val query = (song.genre + " " + song.folder + " " + song.title + " " + song.recommendedPreset).lowercase()
+        val matched = when {
+            query.contains("synthwave") || query.contains("cyberpunk") || query.contains("edm") || query.contains("club") ->
+                allPresets.firstOrNull { it.name.contains("Electronic") }
+            query.contains("metal") || query.contains("heavy") ->
+                allPresets.firstOrNull { it.name.contains("Heavy Metal") }
+            query.contains("rock") ->
+                allPresets.firstOrNull { it.name.contains("Rock") }
+            query.contains("phonk") || query.contains("drift") ->
+                allPresets.firstOrNull { it.name.contains("Phonk") }
+            query.contains("drum & bass") || query.contains("dnb") ->
+                allPresets.firstOrNull { it.name.contains("Drum & Bass") }
+            query.contains("techno") || query.contains("acid") ->
+                allPresets.firstOrNull { it.name.contains("Peak-Time Techno") }
+            query.contains("trap") || query.contains("808") || query.contains("sub") ->
+                allPresets.firstOrNull { it.name.contains("Deep Sub-Bass") }
+            query.contains("hip-hop") || query.contains("rap") || query.contains("рэп") ->
+                allPresets.firstOrNull { it.name.contains("Hip-Hop") }
+            query.contains("lofi") || query.contains("chill") || query.contains("lounge") ->
+                allPresets.firstOrNull { it.name.contains("Lounge") }
+            query.contains("acoustic") || query.contains("vocal") ->
+                allPresets.firstOrNull { it.name.contains("Acoustic") }
+            query.contains("jazz") || query.contains("blues") ->
+                allPresets.firstOrNull { it.name.contains("Jazz") }
+            query.contains("classic") || query.contains("symphony") ->
+                allPresets.firstOrNull { it.name.contains("Classical") }
+            query.contains("pop") ->
+                allPresets.firstOrNull { it.name.contains("Pop") }
+            else -> allPresets.firstOrNull { it.name.contains("Harman") } ?: allPresets[0]
+        }
+        matched?.let {
+            applyEqPreset(it.name)
+            _uiState.update { state ->
+                state.copy(
+                    eqPreampDb = it.preampDb,
+                    trebleLevel = it.treble
+                )
+            }
+        }
+    }
+
+    fun toggleAutoEq(enabled: Boolean) {
+        _uiState.update { it.copy(isAutoEqEnabled = enabled) }
+        if (enabled && _uiState.value.currentSong != null) {
+            autoApplyEqPresetForSong(_uiState.value.currentSong!!)
+        }
+    }
+
+    fun setParametricMode(enabled: Boolean) {
+        _uiState.update { it.copy(isParametricMode = enabled) }
+    }
+
+    fun setPreamp(db: Float) {
+        _uiState.update { it.copy(eqPreampDb = db) }
+    }
+
+    fun toggleLimiter(enabled: Boolean) {
+        _uiState.update { it.copy(isLimiterEnabled = enabled) }
+    }
+
+    fun setTreble(level: Int) {
+        _uiState.update { it.copy(trebleLevel = level) }
     }
 
     fun setGenreFilter(genre: String) {

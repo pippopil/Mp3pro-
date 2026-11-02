@@ -16,8 +16,18 @@ data class Song(
     val year: Int = 0,
     val bitrate: String = "320 kbps",
     val isBuiltIn: Boolean = false,
-    val recommendedPreset: String = "Normal (Плоский)"
+    val recommendedPreset: String = "Normal (Плоский)",
+    val folder: String = ""
 ) {
+    val folderName: String
+        get() = if (folder.isNotBlank()) {
+            folder.trimEnd('/').substringAfterLast('/')
+        } else if (dataPath.isNotBlank()) {
+            dataPath.substringBeforeLast('/', "").substringAfterLast('/')
+        } else {
+            "Основная папка"
+        }
+
     val durationFormatted: String
         get() {
             val totalSeconds = durationMs / 1000

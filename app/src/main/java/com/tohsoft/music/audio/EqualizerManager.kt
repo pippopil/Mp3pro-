@@ -7,13 +7,24 @@ import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
 import android.os.Build
 
+data class EqParametricBand(
+    val id: Int,
+    val freqHz: Int,
+    val gainDb: Float,
+    val qFactor: Float,
+    val hexColor: String
+)
+
 data class EqPreset(
     val name: String,
     val category: String,
     val bands: List<Int>, // 10 bands in dB: [-15..15]
     val bassBoost: Int = 20, // 0..100%
     val virtualizer: Int = 15, // 0..100%
-    val reverb: Short = PresetReverb.PRESET_NONE
+    val reverb: Short = PresetReverb.PRESET_NONE,
+    val treble: Int = 30,
+    val preampDb: Float = 0.0f,
+    val parametricBands: List<EqParametricBand> = emptyList()
 )
 
 class EqualizerManager(private var audioSessionId: Int) {
@@ -27,6 +38,15 @@ class EqualizerManager(private var audioSessionId: Int) {
     var isEnabled: Boolean = true
         private set
 
+    var preampDb: Float = 0.0f
+        private set
+
+    var isLimiterEnabled: Boolean = true
+        private set
+
+    var currentTreblePercent: Int = 30
+        private set
+
     private var currentBassBoostPercent: Int = 0
 
     // 10 Center Frequencies in Hz for wide-band EQ
@@ -37,38 +57,79 @@ class EqualizerManager(private var audioSessionId: Int) {
 
     companion object {
         val PRESETS = listOf(
-            EqPreset("Normal (Плоский)", "Музыка", listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0), 0, 0, PresetReverb.PRESET_NONE),
-            EqPreset("Rock (Рок)", "Жанры", listOf(5, 4, 3, -1, -2, 1, 3, 5, 6, 6), 35, 20, PresetReverb.PRESET_PLATE),
-            EqPreset("Pop (Поп)", "Жанры", listOf(-1, 2, 4, 5, 4, 2, -1, 2, 4, 3), 25, 15, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Jazz (Джаз)", "Жанры", listOf(4, 3, 1, 2, -1, -1, 0, 2, 4, 4), 20, 30, PresetReverb.PRESET_MEDIUMROOM),
-            EqPreset("Classical (Классика)", "Жанры", listOf(5, 4, 3, 2, -1, -1, 0, 2, 4, 5), 10, 40, PresetReverb.PRESET_LARGEHALL),
-            EqPreset("Hip-Hop (Хип-хоп / Рэп)", "Жанры", listOf(8, 7, 5, 1, -1, -1, 2, 2, 4, 4), 50, 25, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Electronic / EDM (Клубная)", "Жанры", listOf(7, 6, 4, 1, 0, 2, 3, 5, 6, 6), 45, 35, PresetReverb.PRESET_PLATE),
-            EqPreset("Heavy Metal (Тяжёлый метал)", "Жанры", listOf(6, 5, 1, -2, -3, 2, 5, 7, 8, 8), 40, 25, PresetReverb.PRESET_PLATE),
-            EqPreset("Acoustic (Акустика)", "Жанры", listOf(3, 3, 2, 1, 2, 3, 3, 4, 4, 3), 15, 20, PresetReverb.PRESET_MEDIUMROOM),
-            EqPreset("R&B / Soul (Ритм-н-блюз)", "Жанры", listOf(6, 6, 4, 1, -1, 1, 3, 4, 5, 5), 40, 25, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Blues (Блюз)", "Жанры", listOf(3, 4, 2, 0, -1, 1, 2, 3, 4, 4), 25, 20, PresetReverb.PRESET_PLATE),
-            EqPreset("Reggae (Регги)", "Жанры", listOf(7, 7, 4, 0, -2, 1, 3, 4, 4, 3), 50, 15, PresetReverb.PRESET_PLATE),
-            EqPreset("Latin (Латино)", "Жанры", listOf(4, 3, 1, 0, -1, 0, 2, 4, 5, 5), 30, 20, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Country (Кантри)", "Жанры", listOf(3, 2, 1, 0, 2, 2, 1, 3, 3, 2), 20, 15, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Dance / House (Танцевальный)", "Жанры", listOf(6, 6, 4, 1, 0, 2, 4, 5, 6, 5), 45, 30, PresetReverb.PRESET_PLATE),
-            EqPreset("Techno / Trance (Транс)", "Жанры", listOf(7, 6, 3, 0, -1, 2, 4, 6, 7, 8), 50, 40, PresetReverb.PRESET_PLATE),
-            EqPreset("Bass Boost Ultra (Ультра Бас)", "Бас и драйв", listOf(10, 8, 6, 3, 1, 0, 0, 0, 0, 0), 65, 10, PresetReverb.PRESET_NONE),
-            EqPreset("Deep Sub-Bass (Глубокий саб)", "Бас и драйв", listOf(11, 9, 5, 2, 0, -1, -1, 0, 0, 0), 70, 15, PresetReverb.PRESET_NONE),
-            EqPreset("Punchy Kick (Панч бочки)", "Бас и драйв", listOf(5, 8, 6, 3, 0, 1, 2, 3, 2, 1), 55, 15, PresetReverb.PRESET_NONE),
-            EqPreset("Car Audio Punch (Для авто)", "Бас и драйв", listOf(8, 7, 5, 2, -1, 1, 3, 5, 6, 7), 60, 30, PresetReverb.PRESET_PLATE),
-            EqPreset("Treble Boost (Кристальный верх)", "Акустика", listOf(0, 0, 0, 0, 1, 2, 4, 7, 9, 12), 10, 20, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Vocal Booster (Чистый вокал)", "Акустика", listOf(-3, -2, -1, 3, 6, 6, 5, 2, 0, -1), 15, 20, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Podcast / Speech (Речь и подкаст)", "Акустика", listOf(-5, -4, -1, 4, 7, 7, 5, 2, 0, -2), 0, 0, PresetReverb.PRESET_NONE),
-            EqPreset("Live Concert (Концертная арена)", "Акустика", listOf(4, 3, 1, 0, 2, 3, 4, 5, 5, 6), 35, 60, PresetReverb.PRESET_LARGEHALL),
-            EqPreset("Cathedral / Space (Собор и космос)", "Акустика", listOf(3, 2, 1, 0, 1, 2, 3, 4, 6, 7), 20, 75, PresetReverb.PRESET_LARGEROOM),
-            EqPreset("Warm Analog (Тёплый ламповый звук)", "Акустика", listOf(5, 4, 4, 3, 2, 1, 0, -1, -2, -3), 35, 15, PresetReverb.PRESET_MEDIUMROOM),
-            EqPreset("Lounge & Chillout (Лаунж отдых)", "Акустика", listOf(4, 3, 2, 2, 1, 1, 2, 3, 4, 4), 30, 35, PresetReverb.PRESET_MEDIUMROOM),
-            EqPreset("Movie / Cinematic (Кино и фильмы)", "Акустика", listOf(8, 6, 3, 1, 0, 2, 4, 6, 7, 8), 50, 50, PresetReverb.PRESET_LARGEHALL),
-            EqPreset("Gaming Dynamic (Игры и экшн)", "Акустика", listOf(8, 7, 3, -1, -2, 2, 5, 7, 8, 9), 55, 55, PresetReverb.PRESET_PLATE),
-            EqPreset("In-Ear Earphones (Вакуумные затычки)", "Устройства", listOf(3, 2, -1, -1, 1, 2, 4, 5, 5, 6), 30, 35, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Over-Ear Studio (Полноразмерные)", "Устройства", listOf(1, 2, 1, 0, 0, 1, 2, 3, 3, 4), 25, 25, PresetReverb.PRESET_SMALLROOM),
-            EqPreset("Small Bluetooth Speaker (Портативная колонка)", "Устройства", listOf(6, 5, 3, 1, 2, 3, 4, 5, 4, 3), 40, 20, PresetReverb.PRESET_NONE)
+            // Студия и Аудиофилы (профили Poweramp)
+            EqPreset(
+                "1MORE Quad Driver", "Студия",
+                listOf(4, 6, 2, -1, 1, 3, 2, 4, 6, 5),
+                35, 25, PresetReverb.PRESET_PLATE, 40, 0.0f,
+                listOf(
+                    EqParametricBand(1, 105, 9.8f, 0.70f, "#EF4444"),
+                    EqParametricBand(2, 275, 2.5f, 1.38f, "#DC2626"),
+                    EqParametricBand(3, 807, 1.8f, 0.87f, "#84CC16"),
+                    EqParametricBand(4, 4460, -5.3f, 2.21f, "#06B6D4"),
+                    EqParametricBand(5, 10200, 2.5f, 0.75f, "#A855F7")
+                )
+            ),
+            EqPreset(
+                "Harman Target 2024", "Студия",
+                listOf(6, 5, 3, 0, 0, 1, 2, 4, 3, 2),
+                40, 20, PresetReverb.PRESET_SMALLROOM, 30, -1.0f,
+                listOf(
+                    EqParametricBand(1, 80, 5.5f, 0.85f, "#EF4444"),
+                    EqParametricBand(2, 300, -1.0f, 1.20f, "#EAB308"),
+                    EqParametricBand(3, 1500, 1.5f, 1.10f, "#10B981"),
+                    EqParametricBand(4, 3200, 3.5f, 1.60f, "#6366F1"),
+                    EqParametricBand(5, 8500, 2.0f, 0.90f, "#A855F7")
+                )
+            ),
+            EqPreset("Studio Reference (Студийный плоский)", "Студия", listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0), 0, 0, PresetReverb.PRESET_NONE, 0, 0.0f),
+            EqPreset("Open-Back Audiophile (Sennheiser HD)", "Студия", listOf(4, 3, 1, 0, 0, 0, 1, 2, 3, 2), 25, 30, PresetReverb.PRESET_MEDIUMROOM, 25, -0.5f),
+            EqPreset("Warm Vinyl LP (Виниловая теплота)", "Студия", listOf(5, 4, 3, 2, 1, 0, -1, -2, -3, -4), 40, 15, PresetReverb.PRESET_SMALLROOM, 10, 0.5f),
+            EqPreset("Clear Vocal / De-Esser", "Студия", listOf(-3, -2, 0, 2, 4, 5, 4, -2, -1, 1), 10, 15, PresetReverb.PRESET_SMALLROOM, 20, 0.0f),
+
+            // Жанры
+            EqPreset("Normal (Плоский)", "Музыка", listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0), 0, 0, PresetReverb.PRESET_NONE, 0, 0.0f),
+            EqPreset("Rock (Рок)", "Жанры", listOf(5, 4, 3, -1, -2, 1, 3, 5, 6, 6), 35, 20, PresetReverb.PRESET_PLATE, 45, -1.0f),
+            EqPreset("Pop (Поп)", "Жанры", listOf(-1, 2, 4, 5, 4, 2, -1, 2, 4, 3), 25, 15, PresetReverb.PRESET_SMALLROOM, 30, 0.0f),
+            EqPreset("Jazz (Джаз)", "Жанры", listOf(4, 3, 1, 2, -1, -1, 0, 2, 4, 4), 20, 30, PresetReverb.PRESET_MEDIUMROOM, 35, 0.0f),
+            EqPreset("Classical (Классика)", "Жанры", listOf(5, 4, 3, 2, -1, -1, 0, 2, 4, 5), 10, 40, PresetReverb.PRESET_LARGEHALL, 35, 0.0f),
+            EqPreset("Hip-Hop (Хип-хоп / Рэп)", "Жанры", listOf(8, 7, 5, 1, -1, -1, 2, 2, 4, 4), 60, 25, PresetReverb.PRESET_SMALLROOM, 30, -2.0f),
+            EqPreset("Electronic / EDM (Клубная)", "Жанры", listOf(7, 6, 4, 1, 0, 2, 3, 5, 6, 6), 50, 35, PresetReverb.PRESET_PLATE, 50, -1.5f),
+            EqPreset("Heavy Metal (Тяжёлый метал)", "Жанры", listOf(6, 5, 1, -2, -3, 2, 5, 7, 8, 8), 40, 25, PresetReverb.PRESET_PLATE, 60, -2.0f),
+            EqPreset("Acoustic (Акустика)", "Жанры", listOf(3, 3, 2, 1, 2, 3, 3, 4, 4, 3), 15, 20, PresetReverb.PRESET_MEDIUMROOM, 35, 0.0f),
+            EqPreset("R&B / Soul (Ритм-н-блюз)", "Жанры", listOf(6, 6, 4, 1, -1, 1, 3, 4, 5, 5), 45, 25, PresetReverb.PRESET_SMALLROOM, 35, -0.5f),
+            EqPreset("Blues (Блюз)", "Жанры", listOf(3, 4, 2, 0, -1, 1, 2, 3, 4, 4), 25, 20, PresetReverb.PRESET_PLATE, 30, 0.0f),
+            EqPreset("Reggae (Регги)", "Жанры", listOf(7, 7, 4, 0, -2, 1, 3, 4, 4, 3), 55, 15, PresetReverb.PRESET_PLATE, 25, -1.0f),
+            EqPreset("Latin (Латино)", "Жанры", listOf(4, 3, 1, 0, -1, 0, 2, 4, 5, 5), 30, 20, PresetReverb.PRESET_SMALLROOM, 40, 0.0f),
+            EqPreset("Country (Кантри)", "Жанры", listOf(3, 2, 1, 0, 2, 2, 1, 3, 3, 2), 20, 15, PresetReverb.PRESET_SMALLROOM, 25, 0.0f),
+            EqPreset("Dance / House (Танцевальный)", "Жанры", listOf(6, 6, 4, 1, 0, 2, 4, 5, 6, 5), 50, 30, PresetReverb.PRESET_PLATE, 45, -1.0f),
+            EqPreset("Techno / Trance (Транс)", "Жанры", listOf(7, 6, 3, 0, -1, 2, 4, 6, 7, 8), 55, 40, PresetReverb.PRESET_PLATE, 55, -1.5f),
+            EqPreset("Drum & Bass (DnB 174 BPM)", "Жанры", listOf(10, 8, 3, 4, 1, 2, 4, 5, 7, 6), 75, 30, PresetReverb.PRESET_PLATE, 50, -2.5f),
+            EqPreset("Peak-Time Techno (Берлинский рейв)", "Жанры", listOf(9, 7, 2, -1, 0, 3, 5, 6, 8, 7), 65, 45, PresetReverb.PRESET_STAGE, 60, -2.0f),
+            EqPreset("Phonk & 808 Drift (Фонк 808)", "Жанры", listOf(11, 9, 4, 0, -2, 1, 4, 6, 7, 8), 80, 35, PresetReverb.PRESET_STAGE, 55, -2.5f),
+
+            // Бас и драйв
+            EqPreset("Bass Boost Ultra (Ультра Бас)", "Бас и драйв", listOf(12, 10, 8, 4, 1, 0, 0, 0, 0, 0), 85, 10, PresetReverb.PRESET_NONE, 20, -3.0f),
+            EqPreset("Deep Sub-Bass (Глубокий саб)", "Бас и драйв", listOf(14, 11, 7, 2, 0, -1, -1, 0, 0, 0), 95, 15, PresetReverb.PRESET_NONE, 15, -3.5f),
+            EqPreset("Punchy Kick (Панч бочки)", "Бас и драйв", listOf(6, 9, 7, 3, 0, 1, 2, 3, 2, 1), 70, 15, PresetReverb.PRESET_NONE, 25, -1.5f),
+            EqPreset("Car Audio Punch (Для авто)", "Бас и драйв", listOf(9, 8, 5, 2, -1, 1, 3, 5, 6, 7), 75, 30, PresetReverb.PRESET_PLATE, 45, -2.0f),
+
+            // Акустика и атмосфера
+            EqPreset("Treble Boost (Кристальный верх)", "Акустика", listOf(0, 0, 0, 0, 1, 2, 4, 7, 9, 12), 10, 20, PresetReverb.PRESET_SMALLROOM, 90, -1.0f),
+            EqPreset("Vocal Booster (Чистый вокал)", "Акустика", listOf(-3, -2, -1, 3, 6, 6, 5, 2, 0, -1), 15, 20, PresetReverb.PRESET_SMALLROOM, 30, 0.0f),
+            EqPreset("Podcast / Speech (Речь и подкаст)", "Акустика", listOf(-5, -4, -1, 4, 7, 7, 5, 2, 0, -2), 0, 0, PresetReverb.PRESET_NONE, 10, 1.0f),
+            EqPreset("Live Concert (Концертная арена)", "Акустика", listOf(4, 3, 1, 0, 2, 3, 4, 5, 5, 6), 35, 60, PresetReverb.PRESET_LARGEHALL, 40, -0.5f),
+            EqPreset("Cathedral / Space (Собор и космос)", "Акустика", listOf(3, 2, 1, 0, 1, 2, 3, 4, 6, 7), 20, 75, PresetReverb.PRESET_LARGEROOM, 50, -1.0f),
+            EqPreset("Warm Analog (Тёплый ламповый звук)", "Акустика", listOf(5, 4, 4, 3, 2, 1, 0, -1, -2, -3), 40, 15, PresetReverb.PRESET_MEDIUMROOM, 15, 0.5f),
+            EqPreset("Lounge & Chillout (Лаунж отдых)", "Акустика", listOf(4, 3, 2, 2, 1, 1, 2, 3, 4, 4), 30, 35, PresetReverb.PRESET_MEDIUMROOM, 30, 0.0f),
+            EqPreset("Movie / Cinematic (Кино и фильмы)", "Акустика", listOf(8, 6, 3, 1, 0, 2, 4, 6, 7, 8), 65, 50, PresetReverb.PRESET_LARGEHALL, 50, -1.5f),
+            EqPreset("Gaming Dynamic (Игры и экшн)", "Акустика", listOf(8, 7, 3, -1, -2, 2, 5, 7, 8, 9), 70, 55, PresetReverb.PRESET_STAGE, 65, -2.0f),
+
+            // Устройства
+            EqPreset("In-Ear Earphones (Вакуумные затычки)", "Устройства", listOf(3, 2, -1, -1, 1, 2, 4, 5, 5, 6), 30, 35, PresetReverb.PRESET_SMALLROOM, 35, 0.0f),
+            EqPreset("Over-Ear Studio (Полноразмерные)", "Устройства", listOf(1, 2, 1, 0, 0, 1, 2, 3, 3, 4), 25, 25, PresetReverb.PRESET_SMALLROOM, 25, 0.0f),
+            EqPreset("Small Bluetooth Speaker (Портативная колонка)", "Устройства", listOf(6, 5, 3, 1, 2, 3, 4, 5, 4, 3), 40, 20, PresetReverb.PRESET_NONE, 30, 1.0f),
+            EqPreset("TWS Wireless Pods (TWS наушники)", "Устройства", listOf(4, 3, 0, 0, 2, 3, 4, 5, 5, 4), 35, 30, PresetReverb.PRESET_SMALLROOM, 40, 0.0f)
         )
     }
 
