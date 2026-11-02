@@ -16,7 +16,11 @@ import com.tohsoft.music.data.CoverArtRepository
 import com.tohsoft.music.data.model.Song
 import com.tohsoft.music.data.repository.MusicRepository
 import com.tohsoft.music.data.yandex.YandexMusicRepository
+import android.os.Environment
 import com.tohsoft.music.ui.components.CoverStyle
+import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +29,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
 
 enum class TrackSortMode(val label: String) {
     TITLE_ASC("По названию (А-Я)"),
@@ -82,6 +88,10 @@ data class PlayerUiState(
     val activeGenreFilter: String = "Все",
     val sortMode: TrackSortMode = TrackSortMode.TITLE_ASC,
     val isOnlineSearchOpen: Boolean = false,
+    val onlineSearchQuery: String = "",
+    val isSearchingOnline: Boolean = false,
+    val onlineSearchResults: List<CoverArtRepository.OnlineMusicTrack> = emptyList(),
+    val onlineSearchError: String? = null,
     val onlineDownloadProgress: Int = 0,
     val onlineDownloadMessage: String = ""
 )
@@ -506,25 +516,90 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun searchOnlineTracks(query: String) {
+        _uiState.update { it.copy(onlineSearchQuery = query) }
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(onlineSearchResults = emptyList(), isSearchingOnline = false, onlineSearchError = null) }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSearchingOnline = true, onlineSearchError = null) }
+            try {
+                val results = coverArtRepository.searchOnlineMusic(trimmed)
+                _uiState.update {
+                    it.copy(
+                        isSearchingOnline = false,
+                        onlineSearchResults = results,
+                        onlineSearchError = if (results.isEmpty()) "По запросу \"$trimmed\" ничего не найдено. Попробуйте другой запрос." else null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSearchingOnline = false,
+                        onlineSearchError = "Ошибка поиска: " + (e.localizedMessage ?: "не удалось связаться с сервером")
+                    )
+                }
+            }
+        }
+    }
+
     fun downloadOnlineSong(title: String, artist: String, genre: String, audioUrl: String, coverUrl: String) {
         viewModelScope.launch {
             _uiState.update { 
                 it.copy(
-                    onlineDownloadProgress = 20, 
-                    onlineDownloadMessage = "Загрузка аудио: $title..."
+                    onlineDownloadProgress = 15, 
+                    onlineDownloadMessage = "Подключение к источнику: $title..."
                 ) 
             }
-            delay(600)
-            _uiState.update { it.copy(onlineDownloadProgress = 70) }
-            delay(600)
 
+            val context = getApplication<Application>()
+            val downloadedUri = withContext(Dispatchers.IO) {
+                try {
+                    val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir
+                    val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(50) + ".m4a"
+                    val destFile = File(musicDir, safeName)
+
+                    val req = Request.Builder()
+                        .url(audioUrl)
+                        .header("User-Agent", "MP3PlayerPro-Android/6.8")
+                        .build()
+                    coverArtRepository.httpClient.newCall(req).execute().use { response ->
+                        if (!response.isSuccessful) return@withContext null
+                        val body = response.body ?: return@withContext null
+                        val contentLength = body.contentLength()
+                        var totalRead = 0L
+                        body.byteStream().use { input ->
+                            FileOutputStream(destFile).use { output ->
+                                val buffer = ByteArray(8 * 1024)
+                                var read: Int
+                                while (input.read(buffer).also { read = it } != -1) {
+                                    output.write(buffer, 0, read)
+                                    totalRead += read
+                                    if (contentLength > 0) {
+                                        val progress = ((totalRead * 80) / contentLength).toInt() + 15
+                                        _uiState.update { it.copy(onlineDownloadProgress = progress, onlineDownloadMessage = "Скачивание: " + progress + "%") }
+                                    }
+                                }
+                            }
+                        }
+                        Uri.fromFile(destFile)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    null
+                }
+            }
+
+            val finalUri = downloadedUri ?: Uri.parse(audioUrl)
             val newSong = Song(
                 id = System.currentTimeMillis(),
                 title = title,
                 artist = artist,
                 album = "Онлайн Загрузки",
                 durationMs = 210000L,
-                contentUri = Uri.parse(audioUrl),
+                contentUri = finalUri,
                 coverUrl = coverUrl,
                 genre = genre,
                 bitrate = "320 kbps MP3 HQ",

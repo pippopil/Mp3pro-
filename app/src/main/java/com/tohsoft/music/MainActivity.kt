@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
                     onSortChange = { mode -> viewModel.setSortMode(mode) },
                     onOpenOnlineSearch = { viewModel.openOnlineSearch(true) },
                     onCloseOnlineSearch = { viewModel.openOnlineSearch(false) },
+                    onSearchOnline = { query -> viewModel.searchOnlineTracks(query) },
                     onDownloadOnlineTrack = { title, artist, genre, url, cover ->
                         viewModel.downloadOnlineSong(title, artist, genre, url, cover)
                     }

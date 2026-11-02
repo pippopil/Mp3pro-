@@ -96,6 +96,7 @@ fun MainPlayerScreen(
     onSortChange: (com.tohsoft.music.viewmodel.TrackSortMode) -> Unit = {},
     onOpenOnlineSearch: () -> Unit = {},
     onCloseOnlineSearch: () -> Unit = {},
+    onSearchOnline: (String) -> Unit = {},
     onDownloadOnlineTrack: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> }
 ) {
     val bgBrush = Brush.verticalGradient(
@@ -290,6 +291,10 @@ fun MainPlayerScreen(
         if (uiState.isOnlineSearchOpen) {
             OnlineMusicSearchModal(
                 onDismiss = onCloseOnlineSearch,
+                onSearch = onSearchOnline,
+                isSearching = uiState.isSearchingOnline,
+                searchResults = uiState.onlineSearchResults,
+                searchError = uiState.onlineSearchError,
                 onDownload = onDownloadOnlineTrack,
                 downloadProgress = uiState.onlineDownloadProgress,
                 downloadMessage = uiState.onlineDownloadMessage
@@ -1866,6 +1871,10 @@ private fun formatMs(ms: Long): String {
 @Composable
 fun OnlineMusicSearchModal(
     onDismiss: () -> Unit,
+    onSearch: (String) -> Unit = {},
+    isSearching: Boolean = false,
+    searchResults: List<com.tohsoft.music.data.CoverArtRepository.OnlineMusicTrack> = emptyList(),
+    searchError: String? = null,
     onDownload: (title: String, artist: String, url: String, genre: String, coverUrl: String) -> Unit,
     downloadProgress: Int,
     downloadMessage: String
@@ -1882,12 +1891,16 @@ fun OnlineMusicSearchModal(
         )
     }
 
-    val filtered = remember(searchQuery) {
-        if (searchQuery.isBlank()) presetOnlineTracks
-        else presetOnlineTracks.filter { 
-            it.first.first.contains(searchQuery, ignoreCase = true) || 
-            it.first.second.contains(searchQuery, ignoreCase = true) ||
-            it.first.third.contains(searchQuery, ignoreCase = true)
+    val popularChips = remember {
+        listOf("Eminem", "Кино", "Linkin Park", "Miyagi", "Phonk", "Bass Boost", "Queen")
+    }
+
+    // Автоматический запуск поиска при вводе с задержкой 450мс
+    LaunchedEffect(searchQuery) {
+        val trimmed = searchQuery.trim()
+        if (trimmed.length >= 2) {
+            delay(450)
+            onSearch(trimmed)
         }
     }
 
@@ -1906,12 +1919,24 @@ fun OnlineMusicSearchModal(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "🌐 Поиск музыки в сети",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "🌐 Онлайн поиск и загрузка",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "320 kbps",
+                        color = ColorTurquoise,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .background(Color(0xFF064E3B), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
                 IconButton(onClick = onDismiss) {
                     Text("✕", color = ColorTextMuted, fontSize = 16.sp)
                 }
@@ -1919,21 +1944,72 @@ fun OnlineMusicSearchModal(
 
             Spacer(Modifier.height(8.dp))
 
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Введите трек, артиста или стиль...", color = Color(0xFF64748B), fontSize = 13.sp) },
+            // Поле поиска с кнопкой Найти
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ColorTurquoise,
-                    unfocusedBorderColor = Color(0xFF334155),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                singleLine = true
-            )
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Название трека, артист (Кино, Eminem...)", color = Color(0xFF64748B), fontSize = 13.sp) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Text("✕", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                            }
+                        }
+                    }
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                Button(
+                    onClick = { onSearch(searchQuery.trim()) },
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
+                ) {
+                    Text("🔍", fontSize = 15.sp)
+                }
+            }
+
+            // Быстрые теги артистов
+            Spacer(Modifier.height(8.dp))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(popularChips) { chip ->
+                    val isSelected = searchQuery.equals(chip, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) ColorTurquoise else Color(0xFF1E293B))
+                            .clickable {
+                                searchQuery = chip
+                                onSearch(chip)
+                            }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = chip,
+                            color = if (isSelected) Color(0xFF0F172A) else Color(0xFFCBD5E1),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
 
             if (downloadProgress > 0) {
                 Spacer(Modifier.height(10.dp))
@@ -1954,64 +2030,186 @@ fun OnlineMusicSearchModal(
 
             Spacer(Modifier.height(12.dp))
 
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filtered) { (info, urls) ->
-                    val (title, artist, genre) = info
-                    val (streamUrl, coverUrl) = urls
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF1E293B))
-                            .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        AsyncImage(
-                            model = coverUrl,
-                            contentDescription = title,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(8.dp)),
-                            contentScale = ContentScale.Crop
+            // Состояние загрузки
+            if (isSearching) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            color = ColorTurquoise,
+                            modifier = Modifier.size(36.dp)
                         )
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = title,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "$artist • $genre",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "MP3 320 kbps (Hi-Res Master)",
-                                color = ColorTurquoise,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                onDownload(title, artist, streamUrl, genre, coverUrl)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "Поиск треков и аудиопотоков...",
+                            color = ColorTextMuted,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            } else if (searchResults.isNotEmpty()) {
+                // Реальные результаты онлайн поиска
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(searchResults) { track ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1E293B))
+                                .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("⬇ Скачать", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            AsyncImage(
+                                model = track.coverUrl,
+                                contentDescription = track.title,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.title,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = track.artist + " • " + track.album,
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = track.genre + " • 320 kbps HQ",
+                                        color = ColorTurquoise,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    onDownload(track.title, track.artist, track.audioUrl, track.genre, track.coverUrl)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("⬇ Скачать", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            } else if (searchQuery.isNotBlank()) {
+                // Если искали, но ничего не найдено
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = searchError ?: "По запросу "$searchQuery" ничего не найдено.",
+                            color = Color(0xFFF87171),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "Попробуйте ввести имя артиста (например: Eminem, Кино, Miyagi, Linkin Park)",
+                            color = ColorTextMuted,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                // Если поле поиска пустое, показываем стартовые треки
+                Text(
+                    text = "Популярные рекомендации:",
+                    color = ColorTextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(presetOnlineTracks) { (info, urls) ->
+                        val (title, artist, genre) = info
+                        val (streamUrl, coverUrl) = urls
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1E293B))
+                                .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AsyncImage(
+                                model = coverUrl,
+                                contentDescription = title,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = title,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "$artist • $genre",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "320 kbps Master Audio",
+                                    color = ColorTurquoise,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    onDownload(title, artist, streamUrl, genre, coverUrl)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("⬇ Скачать", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
                         }
                     }
                 }

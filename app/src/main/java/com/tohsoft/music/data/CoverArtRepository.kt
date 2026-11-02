@@ -39,6 +39,68 @@ class CoverArtRepository(private val context: Context) {
         val releaseYear: Int?
     )
 
+    data class OnlineMusicTrack(
+        val trackId: Long,
+        val title: String,
+        val artist: String,
+        val album: String,
+        val genre: String,
+        val audioUrl: String,
+        val coverUrl: String,
+        val durationMs: Long
+    )
+
+    /**
+     * Живой глобальный поиск музыки в сети по названию, артисту или жанру через открытый API.
+     */
+    suspend fun searchOnlineMusic(query: String): List<OnlineMusicTrack> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return@withContext emptyList()
+        val encodedQuery = URLEncoder.encode(trimmed, "UTF-8")
+        val url = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=30"
+
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "MP3PlayerPro-Android/6.8")
+            .build()
+
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val jsonString = response.body?.string() ?: return@withContext emptyList()
+                val json = JSONObject(jsonString)
+                val results = json.optJSONArray("results") ?: return@withContext emptyList()
+
+                val list = mutableListOf<OnlineMusicTrack>()
+                for (i in 0 until results.length()) {
+                    val item = results.getJSONObject(i)
+                    val previewUrl = item.optString("previewUrl")
+                    if (previewUrl.isNullOrBlank()) continue
+
+                    val rawArtUrl = item.optString("artworkUrl100")
+                    val hdArtUrl = rawArtUrl.replace("100x100bb.jpg", "600x600bb.jpg")
+
+                    list.add(
+                        OnlineMusicTrack(
+                            trackId = item.optLong("trackId"),
+                            title = item.optString("trackName", "Без названия"),
+                            artist = item.optString("artistName", "Неизвестный исполнитель"),
+                            album = item.optString("collectionName", "Сингл"),
+                            genre = item.optString("primaryGenreName", "Музыка"),
+                            audioUrl = previewUrl,
+                            coverUrl = hdArtUrl,
+                            durationMs = item.optLong("trackTimeMillis", 30000L)
+                        )
+                    )
+                }
+                list
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     /**
      * Поиск обложек онлайн по артисту и названию трека.
      */
