@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  */
 class CoverArtRepository(private val context: Context) {
 
-    private val httpClient = OkHttpClient.Builder()
+    val httpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

@@ -2128,7 +2128,7 @@ fun OnlineMusicSearchModal(
                         modifier = Modifier.padding(16.dp)
                     ) {
                         Text(
-                            text = searchError ?: "По запросу "$searchQuery" ничего не найдено.",
+                            text = searchError ?: ("По запросу «" + searchQuery + "» ничего не найдено."),
                             color = Color(0xFFF87171),
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center
