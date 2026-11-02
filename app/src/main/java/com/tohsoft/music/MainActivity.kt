@@ -1,6 +1,7 @@
 package com.tohsoft.music
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material3.MaterialTheme
+import com.tohsoft.music.service.DynamicIslandOverlayService
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,6 +64,8 @@ class MainActivity : ComponentActivity() {
                     onCloseSongMenu = { viewModel.closeSongMenu() },
                     onSleepTimerClick = { viewModel.openSleepTimerDialog(true) },
                     onCloseSleepTimer = { viewModel.openSleepTimerDialog(false) },
+                    onStartSleepTimer = { seconds -> viewModel.startSleepTimer(seconds) },
+                    onCancelSleepTimer = { viewModel.cancelSleepTimer() },
                     onHideTabsClick = { viewModel.openHideTabsDialog(true) },
                     onCloseHideTabs = { viewModel.openHideTabsDialog(false) },
                     onThemePickerClick = { viewModel.openThemePicker(true) },
@@ -120,5 +124,33 @@ class MainActivity : ComponentActivity() {
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // При сворачивании в фон: если играет музыка, запускаем островок фронтальной камеры
+        val state = viewModel.uiState.value
+        if (state.isPlaying && state.currentSong != null) {
+            val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
+                action = DynamicIslandOverlayService.ACTION_SHOW
+                putExtra(DynamicIslandOverlayService.EXTRA_TITLE, state.currentSong.title)
+                putExtra(DynamicIslandOverlayService.EXTRA_ARTIST, state.currentSong.artist)
+                putExtra(DynamicIslandOverlayService.EXTRA_IS_PLAYING, true)
+            }
+            try {
+                startService(intent)
+            } catch (ignored: Exception) {}
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // При возвращении в приложение скрываем плавающий островок камеры
+        val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
+            action = DynamicIslandOverlayService.ACTION_HIDE
+        }
+        try {
+            startService(intent)
+        } catch (ignored: Exception) {}
     }
 }

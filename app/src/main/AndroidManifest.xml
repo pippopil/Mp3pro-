@@ -27,6 +27,9 @@
     <!-- Разрешение для установки рингтонов в системе -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
+    <!-- Разрешение для плавающего визуального островка фронтальной камеры при свернутом приложении -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".MP3PlayerApp"
         android:allowBackup="true"
@@ -66,6 +69,11 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Плавающий островок фронтальной камеры (Dynamic Camera Island) -->
+        <service
+            android:name=".service.DynamicIslandOverlayService"
+            android:exported="false" />
 
     </application>
 </manifest>

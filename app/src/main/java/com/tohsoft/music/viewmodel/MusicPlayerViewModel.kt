@@ -410,8 +410,47 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(isSongMenuOpen = false, selectedSongForMenu = null) }
     }
 
+    private var sleepTimerJob: Job? = null
+    private var originalExoVolume: Float = 1.0f
+
     fun openSleepTimerDialog(isOpen: Boolean) {
         _uiState.update { it.copy(isSleepTimerDialogOpen = isOpen) }
+    }
+
+    fun startSleepTimer(seconds: Int) {
+        sleepTimerJob?.cancel()
+        originalExoVolume = exoPlayer.volume
+        val initialMins = Math.max(1, Math.ceil(seconds / 60.0).toInt())
+        _uiState.update { it.copy(sleepTimerMinutesLeft = initialMins, isSleepTimerDialogOpen = false) }
+
+        sleepTimerJob = viewModelScope.launch {
+            var remaining = seconds
+            while (remaining > 0 && isActive) {
+                delay(1000)
+                remaining--
+                val minsLeft = Math.max(0, Math.ceil(remaining / 60.0).toInt())
+                _uiState.update { it.copy(sleepTimerMinutesLeft = minsLeft) }
+
+                // Плавное снижение громкости трека за последние 5 секунд (Crossfade 5 сек)
+                if (remaining in 1..5) {
+                    val fadeRatio = remaining / 5.0f
+                    exoPlayer.volume = (originalExoVolume * fadeRatio).coerceIn(0f, 1f)
+                }
+            }
+
+            // Остановка трека и восстановление базовой громкости
+            exoPlayer.pause()
+            delay(150)
+            exoPlayer.volume = originalExoVolume
+            _uiState.update { it.copy(sleepTimerMinutesLeft = null) }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        exoPlayer.volume = originalExoVolume
+        _uiState.update { it.copy(sleepTimerMinutesLeft = null, isSleepTimerDialogOpen = false) }
     }
 
     fun openHideTabsDialog(isOpen: Boolean) {

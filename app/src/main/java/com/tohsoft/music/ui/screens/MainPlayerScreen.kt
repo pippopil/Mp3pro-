@@ -68,6 +68,8 @@ fun MainPlayerScreen(
     onCloseSongMenu: () -> Unit,
     onSleepTimerClick: () -> Unit,
     onCloseSleepTimer: () -> Unit,
+    onStartSleepTimer: (Int) -> Unit = {},
+    onCancelSleepTimer: () -> Unit = {},
     onHideTabsClick: () -> Unit,
     onCloseHideTabs: () -> Unit,
     onThemePickerClick: () -> Unit,
@@ -258,7 +260,10 @@ fun MainPlayerScreen(
         if (uiState.isSleepTimerDialogOpen) {
             SleepTimerModal(
                 onDismiss = onCloseSleepTimer,
-                onSetTimer = { onCloseSleepTimer() }
+                onSetTimer = { seconds ->
+                    onStartSleepTimer(seconds)
+                    onCloseSleepTimer()
+                }
             )
         }
 
@@ -1605,40 +1610,55 @@ fun MenuItem(icon: String, title: String, onClick: () -> Unit) {
 @Composable
 fun SleepTimerModal(
     onDismiss: () -> Unit,
-    onSetTimer: () -> Unit
+    onSetTimer: (Int) -> Unit = {}
 ) {
-    var selectedOption by remember { mutableStateOf("10 секунд") }
-    val options = listOf("3 секунды", "5 секунд", "10 секунд", "15 секунд", "30 секунд", "Другое (ы):")
+    var selectedOption by remember { mutableStateOf("10 секунд (Тест)") }
+    val options = listOf(
+        "10 секунд (Тест затухания)" to 10,
+        "15 минут" to 15 * 60,
+        "30 минут" to 30 * 60,
+        "45 минут" to 45 * 60,
+        "60 минут" to 60 * 60
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
         title = {
-            Text("Таймер сна", color = Color.Black, fontWeight = FontWeight.Bold)
+            Text("Таймер сна (Sleep Timer)", color = Color.Black, fontWeight = FontWeight.Bold)
         },
         text = {
             Column {
-                options.forEach { opt ->
+                Text(
+                    "Автоматическая остановка воспроизведения с плавным линейным снижением громкости (Crossfade 5 сек).",
+                    color = Color.DarkGray,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                options.forEach { (label, _) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { selectedOption = opt }
-                            .padding(vertical = 8.dp),
+                            .clickable { selectedOption = label }
+                            .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
-                            selected = (selectedOption == opt),
-                            onClick = { selectedOption = opt },
+                            selected = (selectedOption == label),
+                            onClick = { selectedOption = label },
                             colors = RadioButtonDefaults.colors(selectedColor = ColorTurquoise)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(opt, color = Color.Black, fontSize = 15.sp)
+                        Text(label, color = Color.Black, fontSize = 14.sp)
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onSetTimer) {
+            TextButton(onClick = {
+                val chosenSecs = options.firstOrNull { it.first == selectedOption }?.second ?: 600
+                onSetTimer(chosenSecs)
+            }) {
                 Text("ОК", color = Color(0xFF1E3A8A), fontWeight = FontWeight.Bold)
             }
         },
