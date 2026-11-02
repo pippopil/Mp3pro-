@@ -49,25 +49,25 @@ fun PlayerCoverView(
     onBassBoostChange: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "VinylSpin")
+    // Реалистичное вращение виниловой пластинки 33⅓ RPM (2800 мс на полный оборот)
     val angle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
+            animation = tween(durationMillis = 2800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "SpinAngle"
     )
 
-    // Subwoofer Bass Pulse: пульсация диффузора в такт баса при воспроизведении
+    // Subwoofer Bass Pulse: деликатная сабвуферная пульсация
     val bassMultiplier = (bassBoostGain.coerceIn(0, 100) / 100f)
     val bassScale by infiniteTransition.animateFloat(
         initialValue = 1.0f,
-        targetValue = if (isPlaying && bassBoostGain > 0) 1.0f + (bassMultiplier * 0.08f) else 1.0f,
+        targetValue = if (isPlaying && bassBoostGain > 0) 1.0f + (bassMultiplier * 0.045f) else 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 460, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
         ),
         label = "BassPulse"
     )
@@ -84,26 +84,39 @@ fun PlayerCoverView(
         ) {
             when (style) {
                 CoverStyle.VINYL_RECORD -> {
-                    // Виниловая пластинка с канавками, вращением и басовым ореолом
+                    // Виниловая пластинка с аналоговыми канавками, радиальными бликами света и вращением
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .rotate(if (isPlaying) angle else 0f)
                             .clip(CircleShape)
-                            .background(Color(0xFF0F172A))
+                            .background(
+                                Brush.sweepGradient(
+                                    listOf(
+                                        Color(0xFF0A0F1D),
+                                        Color(0xFF1E293B),
+                                        Color(0xFF38BDF8).copy(alpha = 0.28f),
+                                        Color(0xFF0A0F1D),
+                                        Color(0xFF1E293B),
+                                        Color(0xFF38BDF8).copy(alpha = 0.28f),
+                                        Color(0xFF0A0F1D)
+                                    )
+                                )
+                            )
                             .border(
                                 width = if (bassBoostGain > 40) 5.dp else 4.dp,
-                                color = if (bassBoostGain > 40) Color(0xFF06B6D4) else Color(0xFF1E293B),
+                                color = if (bassBoostGain > 40) Color(0xFF06B6D4) else Color(0xFF334155),
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         // Концентрические канавки винила
-                        Box(modifier = Modifier.size(230.dp).border(1.dp, Color(0x33334155), CircleShape))
-                        Box(modifier = Modifier.size(195.dp).border(1.dp, Color(0x22334155), CircleShape))
-                        Box(modifier = Modifier.size(160.dp).border(1.dp, Color(0x33334155), CircleShape))
+                        Box(modifier = Modifier.size(232.dp).border(1.dp, Color(0x3364748B), CircleShape))
+                        Box(modifier = Modifier.size(208.dp).border(1.dp, Color(0x2264748B), CircleShape))
+                        Box(modifier = Modifier.size(184.dp).border(1.dp, Color(0x3364748B), CircleShape))
+                        Box(modifier = Modifier.size(160.dp).border(1.dp, Color(0x2264748B), CircleShape))
 
-                        // Центральный лейбл с обложкой
+                        // Центральный вращающийся лейбл с обложкой
                         Box(
                             modifier = Modifier
                                 .size(125.dp)
@@ -139,9 +152,25 @@ fun PlayerCoverView(
                                 .size(18.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF020617))
-                                .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape)
+                                .border(2.dp, Color(0xFFE2E8F0), CircleShape)
                         )
                     }
+
+                    // Тонарм проигрывателя (стилус/игла)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-4).dp, y = 6.dp)
+                            .size(width = 8.dp, height = 48.dp)
+                            .rotate(if (isPlaying) 26f else 10f)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFFE2E8F0), Color(0xFF64748B))
+                                )
+                            )
+                            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                    )
                 }
 
                 CoverStyle.GLASS_3D -> {

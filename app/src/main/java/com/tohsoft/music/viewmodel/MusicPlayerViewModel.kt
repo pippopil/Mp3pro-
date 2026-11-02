@@ -223,15 +223,38 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private var shuffleQueue = mutableListOf<Long>()
+    private var shuffleIndex = -1
+
+    private fun rebuildShuffleQueue(songs: List<Song>, currentId: Long?) {
+        val otherIds = songs.map { it.id }.filter { it != currentId }.shuffled().toMutableList()
+        if (currentId != null) {
+            otherIds.add(0, currentId)
+            shuffleIndex = 0
+        } else {
+            shuffleIndex = -1
+        }
+        shuffleQueue = otherIds
+    }
+
     fun loadSongs() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val list = repository.loadDeviceSongs()
+            // Гарантируем, что абсолютно у каждого трека есть яркая обложка:
+            val listWithCovers = list.map { song ->
+                if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
+                    val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
+                    song.copy(coverUrl = gen.toString())
+                } else {
+                    song
+                }
+            }
             _uiState.update {
                 it.copy(
-                    songs = list,
-                    filteredSongs = list,
-                    currentSong = it.currentSong ?: list.firstOrNull(),
+                    songs = listWithCovers,
+                    filteredSongs = listWithCovers,
+                    currentSong = it.currentSong ?: listWithCovers.firstOrNull(),
                     isLoading = false
                 )
             }
@@ -285,13 +308,34 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val list = if (state.filteredSongs.isNotEmpty()) state.filteredSongs else state.songs
         if (list.isEmpty()) return
 
-        val currentIndex = list.indexOfFirst { it.id == state.currentSong?.id }
-        val nextIndex = if (state.isShuffle) {
-            list.indices.random()
+        if (state.isShuffle) {
+            if (shuffleQueue.isEmpty() || shuffleQueue.size != list.size) {
+                rebuildShuffleQueue(list, state.currentSong?.id)
+            }
+            shuffleIndex++
+            if (shuffleIndex >= shuffleQueue.size) {
+                if (state.repeatMode == RepeatMode.NONE) {
+                    exoPlayer.pause()
+                    _uiState.update { it.copy(isPlaying = false) }
+                    return
+                }
+                val lastId = shuffleQueue.lastOrNull()
+                rebuildShuffleQueue(list, lastId)
+                shuffleIndex = if (shuffleQueue.size > 1) 1 else 0
+            }
+            val targetId = shuffleQueue.getOrNull(shuffleIndex) ?: list.first().id
+            val nextSong = list.firstOrNull { it.id == targetId } ?: list.first()
+            playSong(nextSong)
         } else {
-            (currentIndex + 1) % list.size
+            val currentIndex = list.indexOfFirst { it.id == state.currentSong?.id }
+            if (currentIndex == list.size - 1 && state.repeatMode == RepeatMode.NONE) {
+                exoPlayer.pause()
+                _uiState.update { it.copy(isPlaying = false) }
+                return
+            }
+            val nextIndex = (currentIndex + 1) % list.size
+            playSong(list[nextIndex])
         }
-        playSong(list[nextIndex])
     }
 
     fun prevSong() {
@@ -299,13 +343,29 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val list = if (state.filteredSongs.isNotEmpty()) state.filteredSongs else state.songs
         if (list.isEmpty()) return
 
+        if (state.isShuffle) {
+            if (shuffleIndex > 0) {
+                shuffleIndex--
+                val targetId = shuffleQueue[shuffleIndex]
+                val prevSong = list.firstOrNull { it.id == targetId } ?: list.first()
+                playSong(prevSong)
+                return
+            }
+        }
         val currentIndex = list.indexOfFirst { it.id == state.currentSong?.id }
         val prevIndex = if (currentIndex > 0) currentIndex - 1 else list.size - 1
         playSong(list[prevIndex])
     }
 
     fun toggleShuffle() {
-        _uiState.update { it.copy(isShuffle = !it.isShuffle) }
+        val newShuffle = !_uiState.value.isShuffle
+        _uiState.update { it.copy(isShuffle = newShuffle) }
+        exoPlayer.shuffleModeEnabled = newShuffle
+        val state = _uiState.value
+        val list = if (state.filteredSongs.isNotEmpty()) state.filteredSongs else state.songs
+        if (newShuffle) {
+            rebuildShuffleQueue(list, state.currentSong?.id)
+        }
     }
 
     fun toggleRepeat() {
@@ -622,28 +682,45 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun searchCoverForCurrentSong() {
         val song = _uiState.value.currentSong ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isSearchingCover = true, coverSearchMessage = "Поиск обложки HD...") }
+            _uiState.update { it.copy(isSearchingCover = true, coverSearchMessage = "Поиск официальной HD-обложки...") }
             try {
                 val results = coverArtRepository.searchCoverArt(song.artist, song.title)
                 val topMatch = results.firstOrNull()
-                if (topMatch != null) {
-                    val updatedSong = song.copy(coverUrl = topMatch.hdCoverUrl)
-                    _uiState.update { state ->
-                        val updatedList = state.songs.map { if (it.id == song.id) updatedSong else it }
-                        val updatedFiltered = state.filteredSongs.map { if (it.id == song.id) updatedSong else it }
-                        state.copy(
-                            songs = updatedList,
-                            filteredSongs = updatedFiltered,
-                            currentSong = updatedSong,
-                            isSearchingCover = false,
-                            coverSearchMessage = "Найдена обложка: ${topMatch.album}"
-                        )
-                    }
+                val finalUrl = if (topMatch != null) {
+                    val cachedUri = coverArtRepository.downloadAndCacheCover(song.id, topMatch.hdCoverUrl)
+                    cachedUri?.toString() ?: topMatch.hdCoverUrl
                 } else {
-                    _uiState.update { it.copy(isSearchingCover = false, coverSearchMessage = "Обложка не найдена") }
+                    _uiState.update { it.copy(coverSearchMessage = "Генерация художественной обложки...") }
+                    val genUri = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
+                    genUri.toString()
+                }
+
+                val updatedSong = song.copy(coverUrl = finalUrl)
+                _uiState.update { state ->
+                    val updatedList = state.songs.map { if (it.id == song.id) updatedSong else it }
+                    val updatedFiltered = state.filteredSongs.map { if (it.id == song.id) updatedSong else it }
+                    state.copy(
+                        songs = updatedList,
+                        filteredSongs = updatedFiltered,
+                        currentSong = updatedSong,
+                        isSearchingCover = false,
+                        coverSearchMessage = if (topMatch != null) "Найдена обложка: " + topMatch.album else "Сгенерирована авторская обложка"
+                    )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSearchingCover = false, coverSearchMessage = "Ошибка поиска: ${e.message}") }
+                val genUri = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
+                val updatedSong = song.copy(coverUrl = genUri.toString())
+                _uiState.update { state ->
+                    val updatedList = state.songs.map { if (it.id == song.id) updatedSong else it }
+                    val updatedFiltered = state.filteredSongs.map { if (it.id == song.id) updatedSong else it }
+                    state.copy(
+                        songs = updatedList,
+                        filteredSongs = updatedFiltered,
+                        currentSong = updatedSong,
+                        isSearchingCover = false,
+                        coverSearchMessage = "Сгенерирована авторская обложка"
+                    )
+                }
             }
         }
     }
