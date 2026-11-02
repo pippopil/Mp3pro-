@@ -49,6 +49,8 @@ fun PlayerCoverView(
     onBassBoostChange: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "VinylCover")
+
     // Реалистичное вращение виниловой пластинки 33⅓ RPM (2800 мс на полный оборот)
     val angle by infiniteTransition.animateFloat(
         initialValue = 0f,
