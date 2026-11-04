@@ -101,11 +101,33 @@ fun MainPlayerScreen(
     onOpenOnlineSearch: () -> Unit = {},
     onCloseOnlineSearch: () -> Unit = {},
     onSearchOnline: (String) -> Unit = {},
-    onDownloadOnlineTrack: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> }
+    onDownloadOnlineTrack: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    onRescanStorage: () -> Unit = {},
+    onOpenBlacklistFolders: () -> Unit = {},
+    onCloseBlacklistFolders: () -> Unit = {},
+    onToggleBlacklistFolder: (String) -> Unit = {},
+    onOpenLanguage: () -> Unit = {},
+    onCloseLanguage: () -> Unit = {},
+    onSelectLanguage: (String) -> Unit = {},
+    onOpenSmartShare: () -> Unit = {},
+    onCloseSmartShare: () -> Unit = {},
+    onToggleVisibleTab: (String) -> Unit = {},
+    onClearStatusToast: () -> Unit = {},
+    onFeedback: () -> Unit = {},
+    onRateApp: () -> Unit = {},
+    onShareApp: () -> Unit = {}
 ) {
     val bgBrush = Brush.verticalGradient(
         listOf(ColorDarkBgTop, ColorDarkBgMid, ColorDarkBgBottom)
     )
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(uiState.statusToastMessage) {
+        uiState.statusToastMessage?.let { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            onClearStatusToast()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(bgBrush)) {
         Scaffold(
@@ -164,7 +186,14 @@ fun MainPlayerScreen(
                         onOpenEqualizer = onOpenEqualizer,
                         onToggleSetting = onToggleSetting,
                         onOpenYandexModal = onOpenYandexModal,
-                        onSetCoverStyle = onSetCoverStyle
+                        onSetCoverStyle = onSetCoverStyle,
+                        onRescanStorage = onRescanStorage,
+                        onOpenBlacklistFolders = onOpenBlacklistFolders,
+                        onOpenLanguage = onOpenLanguage,
+                        onOpenSmartShare = onOpenSmartShare,
+                        onFeedback = onFeedback,
+                        onRateApp = onRateApp,
+                        onShareApp = onShareApp
                     )
                 }
             }
@@ -269,7 +298,36 @@ fun MainPlayerScreen(
 
         // Hide Tabs Dialog
         if (uiState.isHideTabsDialogOpen) {
-            HideTabsModal(onDismiss = onCloseHideTabs)
+            HideTabsModal(
+                visibleTabs = uiState.visibleTabs,
+                onToggleTab = onToggleVisibleTab,
+                onDismiss = onCloseHideTabs
+            )
+        }
+
+        // Blacklist Folders Dialog
+        if (uiState.isBlacklistFoldersDialogOpen) {
+            BlacklistFoldersModal(
+                blacklistedFolders = uiState.blacklistedFolders,
+                onToggleFolder = onToggleBlacklistFolder,
+                onDismiss = onCloseBlacklistFolders
+            )
+        }
+
+        // Language Selection Dialog
+        if (uiState.isLanguageDialogOpen) {
+            LanguageModal(
+                currentLanguage = uiState.currentLanguage,
+                onSelectLanguage = onSelectLanguage,
+                onDismiss = onCloseLanguage
+            )
+        }
+
+        // SmartShare Dialog
+        if (uiState.isSmartShareDialogOpen) {
+            SmartShareModal(
+                onDismiss = onCloseSmartShare
+            )
         }
 
         // Theme Selector Modal
@@ -484,7 +542,8 @@ fun SongsTabContent(
                 listOf(
                     com.tohsoft.music.viewmodel.TrackSortMode.TITLE_ASC to "🔤 А-Я",
                     com.tohsoft.music.viewmodel.TrackSortMode.ARTIST to "🎤 Артист",
-                    com.tohsoft.music.viewmodel.TrackSortMode.ALBUM to "💿 Альбом"
+                    com.tohsoft.music.viewmodel.TrackSortMode.ALBUM to "💿 Альбом",
+                    com.tohsoft.music.viewmodel.TrackSortMode.FOLDER to "📁 Папка"
                 ).forEach { (mode, label) ->
                     val isModeActive = sortMode == mode
                     Box(
@@ -1189,7 +1248,14 @@ fun SettingsTabContent(
     onOpenEqualizer: () -> Unit,
     onToggleSetting: (String, Boolean) -> Unit,
     onOpenYandexModal: () -> Unit,
-    onSetCoverStyle: (CoverStyle) -> Unit
+    onSetCoverStyle: (CoverStyle) -> Unit,
+    onRescanStorage: () -> Unit = {},
+    onOpenBlacklistFolders: () -> Unit = {},
+    onOpenLanguage: () -> Unit = {},
+    onOpenSmartShare: () -> Unit = {},
+    onFeedback: () -> Unit = {},
+    onRateApp: () -> Unit = {},
+    onShareApp: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1341,12 +1407,12 @@ fun SettingsTabContent(
             modifier = Modifier.padding(vertical = 6.dp)
         )
 
-        SettingActionItem(icon = "🔍", title = "Сканирование музыки в памяти", onClick = {})
+        SettingActionItem(icon = "🔍", title = "Сканирование музыки в памяти", onClick = onRescanStorage)
         SettingActionItem(icon = "🎚", title = "Эквалайзер и звуковые эффекты", onClick = onOpenEqualizer)
         SettingActionItem(icon = "👁", title = "Скрыть вкладки", onClick = onHideTabsClick)
-        SettingActionItem(icon = "📁", title = "Черные папки", onClick = {})
+        SettingActionItem(icon = "📁", title = "Черные папки", onClick = onOpenBlacklistFolders)
         SettingActionItem(icon = "🎨", title = "Менять тему", onClick = onThemePickerClick)
-        SettingActionItem(icon = "🌐", title = "язык – русский (Россия)", onClick = {})
+        SettingActionItem(icon = "🌐", title = "язык – " + uiState.currentLanguage, onClick = onOpenLanguage)
 
         SettingSwitchItem(
             icon = "✂",
@@ -1356,7 +1422,7 @@ fun SettingsTabContent(
         )
         SettingSwitchItem(
             icon = "📌",
-            title = "Запомнить игру",
+            title = "Запоминать последний трек",
             checked = uiState.rememberPlayback,
             onCheckedChange = { onToggleSetting("rememberPlayback", it) }
         )
@@ -1368,11 +1434,11 @@ fun SettingsTabContent(
         )
 
         SettingActionItem(icon = "⏱", title = "Таймер сна", onClick = onSleepTimerClick)
-        SettingActionItem(icon = "📲", title = "SmartShare (Приемник)", onClick = {})
+        SettingActionItem(icon = "📲", title = "SmartShare (Приемник)", onClick = onOpenSmartShare)
 
         SettingSwitchItem(
             icon = "🔊",
-            title = "Объем исчезает и исчезает",
+            title = "Плавное затухание громкости (Fade In/Out)",
             checked = uiState.fadeInOut,
             onCheckedChange = { onToggleSetting("fadeInOut", it) }
         )
@@ -1398,17 +1464,38 @@ fun SettingsTabContent(
             modifier = Modifier.padding(vertical = 8.dp)
         )
 
-        SettingActionItem(icon = "💬", title = "Обратная связь", onClick = {})
-        SettingActionItem(icon = "⭐", title = "Оценить 5 звезд", onClick = {})
-        SettingActionItem(icon = "🔗", title = "Поделиться", onClick = {})
+        SettingActionItem(icon = "💬", title = "Обратная связь", onClick = onFeedback)
+        SettingActionItem(icon = "⭐", title = "Оценить 5 звезд", onClick = onRateApp)
+        SettingActionItem(icon = "🔗", title = "Поделиться", onClick = onShareApp)
 
         Spacer(Modifier.height(24.dp))
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val (appVerName, appVerCode) = remember(context) {
+            try {
+                val pInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.getPackageInfo(context.packageName, 0)
+                }
+                val ver = pInfo.versionName ?: "1.0.0-beta12"
+                val code = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION")
+                    pInfo.versionCode.toLong()
+                }
+                Pair(ver, code)
+            } catch (e: Exception) {
+                Pair("1.0.0-beta12", 12L)
+            }
+        }
         Column(
             modifier = Modifier.fillMaxWidth().padding(bottom = 90.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Мп3-плеер", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            Text("Версия приложения 6.8 Modern", color = ColorTextMuted, fontSize = 13.sp)
+            Text("MP3 Player Pro", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text("Версия приложения: v$appVerName (Сборка $appVerCode)", color = ColorTextMuted, fontSize = 13.sp)
         }
     }
 }
@@ -1674,41 +1761,238 @@ fun SleepTimerModal(
 // HIDE TABS MODAL
 // ------------------------------------------------------------------------------------------------
 @Composable
-fun HideTabsModal(onDismiss: () -> Unit) {
-    val items = listOf("песни", "Альбомы", "Художники", "Playlist", "Папки", "настройки")
-    val checkedState = remember { mutableStateMapOf("песни" to true, "настройки" to true) }
+fun HideTabsModal(
+    visibleTabs: Set<String>,
+    onToggleTab: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val items = listOf("Песни", "Настройки", "Альбомы", "Артисты", "Плейлисты", "Папки")
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = Color(0xFF14192B),
         title = {
-            Text("Выберите, чтобы показать", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Выберите видимые вкладки", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         },
         text = {
             Column {
                 items.forEach { tabName ->
-                    val checked = checkedState[tabName] ?: false
+                    val checked = visibleTabs.contains(tabName)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { checkedState[tabName] = !checked }
+                            .clickable { onToggleTab(tabName) }
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
                             checked = checked,
-                            onCheckedChange = { checkedState[tabName] = it },
-                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF1E3A8A))
+                            onCheckedChange = { onToggleTab(tabName) },
+                            colors = CheckboxDefaults.colors(checkedColor = ColorTurquoise)
                         )
                         Spacer(Modifier.width(12.dp))
-                        Text(tabName, color = Color.Black, fontSize = 15.sp)
+                        Text(tabName, color = Color.White, fontSize = 15.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+            ) {
+                Text("OK", color = Color(0xFF070B18), fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------------------------------------
+// BLACKLIST FOLDERS MODAL
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun BlacklistFoldersModal(
+    blacklistedFolders: Set<String>,
+    onToggleFolder: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val commonFolders = listOf(
+        "WhatsApp Audio",
+        "Telegram Audio",
+        "Voice Notes",
+        "Notifications",
+        "Ringtones",
+        "Recordings",
+        "Podcasts",
+        "Android/media"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF14192B),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📁", fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Text("Черные папки (Исключения)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    "Отметьте папки, треки из которых не должны появляться в вашей медиатеке:",
+                    color = ColorTextMuted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                commonFolders.forEach { folder ->
+                    val isBlacklisted = blacklistedFolders.contains(folder)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onToggleFolder(folder) }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isBlacklisted,
+                            onCheckedChange = { onToggleFolder(folder) },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = Color(0xFFEF4444),
+                                uncheckedColor = Color(0xFF8EA0BE)
+                            )
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(folder, color = if (isBlacklisted) Color(0xFFFCA5A5) else Color.White, fontSize = 14.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+            ) {
+                Text("Готово", color = Color(0xFF070B18), fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------------------------------------
+// LANGUAGE SELECTION MODAL
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun LanguageModal(
+    currentLanguage: String,
+    onSelectLanguage: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val languages = listOf(
+        "Русский (Россия)",
+        "English (United States)",
+        "Español",
+        "Deutsch",
+        "Français",
+        "Українська",
+        "Қазақша"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF14192B),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🌐", fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Text("Выбор языка", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column {
+                languages.forEach { lang ->
+                    val isSelected = (lang == currentLanguage)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) Color(0x3300C996) else Color.Transparent)
+                            .clickable { onSelectLanguage(lang); onDismiss() }
+                            .padding(vertical = 10.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = lang,
+                            color = if (isSelected) ColorTurquoise else Color.White,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 15.sp
+                        )
+                        if (isSelected) {
+                            Text("✓", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("OK", color = Color(0xFF1E3A8A), fontWeight = FontWeight.Bold)
+                Text("Закрыть", color = ColorTurquoise)
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------------------------------------
+// SMARTSHARE RECEIVER MODAL
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun SmartShareModal(
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF14192B),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📲", fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Text("SmartShare (Приемник)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Быстрая передача треков без сжатия по Wi-Fi Direct и локальной сети:",
+                    color = ColorTextMuted,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF0B1021))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("📡 Статус: Готов к приёму", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Порт: 8080 (HTTP / Direct P2P)", color = ColorTextMuted, fontSize = 12.sp)
+                        Text("Устройство: MP3PlayerPro-Direct", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Откройте плеер на другом устройстве и выберите «Отправить трек»", color = ColorTextMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+            ) {
+                Text("Понятно", color = Color(0xFF070B18), fontWeight = FontWeight.Bold)
             }
         }
     )

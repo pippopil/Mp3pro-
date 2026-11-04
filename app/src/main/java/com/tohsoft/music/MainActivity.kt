@@ -1,8 +1,14 @@
 package com.tohsoft.music
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -18,10 +24,14 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import com.tohsoft.music.ui.screens.MainPlayerScreen
 import com.tohsoft.music.viewmodel.MusicPlayerViewModel
+import kotlin.math.sqrt
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), SensorEventListener {
 
     private lateinit var viewModel: MusicPlayerViewModel
+    private var sensorManager: SensorManager? = null
+    private var accelerometer: Sensor? = null
+    private var lastShakeTimestamp: Long = 0
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -40,6 +50,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         viewModel = ViewModelProvider(this)[MusicPlayerViewModel::class.java]
+
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
         checkAndRequestPermissions()
 
@@ -99,11 +112,93 @@ class MainActivity : ComponentActivity() {
                     onSearchOnline = { query -> viewModel.searchOnlineTracks(query) },
                     onDownloadOnlineTrack = { title, artist, genre, url, cover ->
                         viewModel.downloadOnlineSong(title, artist, genre, url, cover)
+                    },
+                    onRescanStorage = { viewModel.rescanStorage() },
+                    onOpenBlacklistFolders = { viewModel.openBlacklistFoldersDialog(true) },
+                    onCloseBlacklistFolders = { viewModel.openBlacklistFoldersDialog(false) },
+                    onToggleBlacklistFolder = { folder -> viewModel.toggleBlacklistFolder(folder) },
+                    onOpenLanguage = { viewModel.openLanguageDialog(true) },
+                    onCloseLanguage = { viewModel.openLanguageDialog(false) },
+                    onSelectLanguage = { lang -> viewModel.setLanguage(lang) },
+                    onOpenSmartShare = { viewModel.openSmartShareDialog(true) },
+                    onCloseSmartShare = { viewModel.openSmartShareDialog(false) },
+                    onToggleVisibleTab = { tab -> viewModel.toggleVisibleTab(tab) },
+                    onClearStatusToast = { viewModel.clearStatusToast() },
+                    onFeedback = {
+                        try {
+                            val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                                data = Uri.parse("mailto:support@mp3playerpro.app")
+                                putExtra(Intent.EXTRA_SUBJECT, "MP3 Player Pro - Отзыв")
+                                putExtra(
+                                    Intent.EXTRA_TEXT,
+                                    "Устройство: ${Build.MANUFACTURER} ${Build.MODEL}
+Android: ${Build.VERSION.RELEASE}"
+                                )
+                            }
+                            startActivity(Intent.createChooser(emailIntent, "Отправить отзыв"))
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Почтовый клиент не найден", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onRateApp = {
+                        try {
+                            val rateIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+                            startActivity(rateIntent)
+                        } catch (e: Exception) {
+                            val webIntent = Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                            )
+                            startActivity(webIntent)
+                        }
+                    },
+                    onShareApp = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, "MP3 Player Pro")
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Рекомендую MP3 Player Pro — мощный плеер с 10-полосным эквалайзером и системным звуковым процессором для Яндекс Музыки и Spotify!"
+                            )
+                        }
+                        startActivity(Intent.createChooser(shareIntent, "Поделиться MP3 Player Pro"))
                     }
                 )
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        accelerometer?.let {
+            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager?.unregisterListener(this)
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            if (!viewModel.uiState.value.shakeToSkip) return
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val gForce = sqrt((x * x + y * y + z * z).toDouble()).toFloat() / SensorManager.GRAVITY_EARTH
+            if (gForce > 2.7f) {
+                val now = System.currentTimeMillis()
+                if (now - lastShakeTimestamp > 1200L) {
+                    lastShakeTimestamp = now
+                    viewModel.nextSong()
+                    Toast.makeText(this, "🔀 Встряхивание: следующий трек", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun checkAndRequestPermissions() {
         val permissionsToRequest = mutableListOf<String>()
@@ -128,7 +223,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // При сворачивании в фон: если играет музыка, запускаем островок фронтальной камеры
         val state = viewModel.uiState.value
         if (state.isPlaying && state.currentSong != null) {
             val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
@@ -145,7 +239,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // При возвращении в приложение скрываем плавающий островок камеры
         val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
             action = DynamicIslandOverlayService.ACTION_HIDE
         }

@@ -1,9 +1,12 @@
 package com.tohsoft.music.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.media.audiofx.AudioEffect
 import android.net.Uri
+import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.AudioAttributes
@@ -16,7 +19,6 @@ import com.tohsoft.music.data.CoverArtRepository
 import com.tohsoft.music.data.model.Song
 import com.tohsoft.music.data.repository.MusicRepository
 import com.tohsoft.music.data.yandex.YandexMusicRepository
-import android.os.Environment
 import com.tohsoft.music.ui.components.CoverStyle
 import java.io.File
 import java.io.FileOutputStream
@@ -61,6 +63,14 @@ data class PlayerUiState(
     val isPropertiesDialogOpen: Boolean = false,
     val isThemePickerOpen: Boolean = false,
     val isWallpaperPickerOpen: Boolean = false,
+    val isBlacklistFoldersDialogOpen: Boolean = false,
+    val isLanguageDialogOpen: Boolean = false,
+    val isSmartShareDialogOpen: Boolean = false,
+    val blacklistedFolders: Set<String> = setOf("WhatsApp Audio", "Voice Notes", "Notifications"),
+    val visibleTabs: Set<String> = setOf("Песни", "Настройки"),
+    val currentLanguage: String = "Русский (Россия)",
+    val isScanningStorage: Boolean = false,
+    val statusToastMessage: String? = null,
     val rememberPlayback: Boolean = true,
     val lockScreenPlayer: Boolean = false,
     val fadeInOut: Boolean = false,
@@ -108,7 +118,11 @@ enum class RepeatMode {
 
 class MusicPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val prefs: SharedPreferences = application.getSharedPreferences("mp3_player_pro_prefs", Context.MODE_PRIVATE)
     private val repository = MusicRepository(application)
+    private val coverArtRepository = CoverArtRepository(application)
+    private val yandexRepository = YandexMusicRepository()
+
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application)
         .setAudioAttributes(
             AudioAttributes.Builder()
@@ -126,8 +140,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private var progressJob: Job? = null
+    private var sleepTimerJob: Job? = null
+    private var originalExoVolume: Float = 1.0f
+    private var lastBoundSessionId: Int = 0
 
     init {
+        loadSavedPreferences()
         setupPlayerListener()
         loadSongs()
         try {
@@ -137,7 +155,35 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private var lastBoundSessionId: Int = 0
+    private fun loadSavedPreferences() {
+        val savedRemember = prefs.getBoolean("rememberPlayback", true)
+        val savedLockScreen = prefs.getBoolean("lockScreenPlayer", false)
+        val savedFade = prefs.getBoolean("fadeInOut", false)
+        val savedShake = prefs.getBoolean("shakeToSkip", false)
+        val savedGrid = prefs.getBoolean("gridAlbumView", false)
+        val savedHideShort = prefs.getBoolean("hideShortSongs", false)
+        val savedTheme = prefs.getString("currentTheme", "cosmic") ?: "cosmic"
+        val savedLang = prefs.getString("currentLanguage", "Русский (Россия)") ?: "Русский (Россия)"
+        val defaultBlacklist = setOf("WhatsApp Audio", "Voice Notes", "Notifications")
+        val savedBlacklist = prefs.getStringSet("blacklistedFolders", defaultBlacklist) ?: defaultBlacklist
+        val defaultTabs = setOf("Песни", "Настройки")
+        val savedTabs = prefs.getStringSet("visibleTabs", defaultTabs) ?: defaultTabs
+
+        _uiState.update {
+            it.copy(
+                rememberPlayback = savedRemember,
+                lockScreenPlayer = savedLockScreen,
+                fadeInOut = savedFade,
+                shakeToSkip = savedShake,
+                gridAlbumView = savedGrid,
+                hideShortSongs = savedHideShort,
+                currentTheme = savedTheme,
+                currentLanguage = savedLang,
+                blacklistedFolders = savedBlacklist,
+                visibleTabs = savedTabs
+            )
+        }
+    }
 
     private fun setupPlayerListener() {
         exoPlayer.addListener(object : Player.Listener {
@@ -151,6 +197,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     }
                 } else {
                     progressJob?.cancel()
+                    if (_uiState.value.rememberPlayback && _uiState.value.currentSong != null) {
+                        prefs.edit().putLong("lastPositionMs", exoPlayer.currentPosition).apply()
+                    }
                 }
             }
 
@@ -178,14 +227,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             lastBoundSessionId = sessionId
             equalizerManager?.attachAudioSession(sessionId)
 
-            // Re-apply active EQ preset & settings to the fresh audio session
             equalizerManager?.applyPreset(_uiState.value.activeEqPreset)
             equalizerManager?.setBassBoostStrength(_uiState.value.bassBoost)
             equalizerManager?.setVirtualizerStrength(_uiState.value.virtualizer)
             equalizerManager?.setLoudnessGain(_uiState.value.loudnessGain)
             equalizerManager?.setEnabled(_uiState.value.isEqEnabled)
 
-            // Notify Android system & Xiaomi/Samsung Dolby Atmos/Dirac engine
             try {
                 val intent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
                     putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
@@ -218,37 +265,41 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
             while (isActive) {
+                val pos = exoPlayer.currentPosition
                 _uiState.update {
                     it.copy(
-                        currentPositionMs = exoPlayer.currentPosition,
+                        currentPositionMs = pos,
                         durationMs = exoPlayer.duration.coerceAtLeast(0)
                     )
+                }
+                if (_uiState.value.rememberPlayback && _uiState.value.currentSong != null) {
+                    prefs.edit().putLong("lastPositionMs", pos).apply()
                 }
                 delay(500)
             }
         }
     }
 
-    private var shuffleQueue = mutableListOf<Long>()
-    private var shuffleIndex = -1
-
-    private fun rebuildShuffleQueue(songs: List<Song>, currentId: Long?) {
-        val otherIds = songs.map { it.id }.filter { it != currentId }.shuffled().toMutableList()
-        if (currentId != null) {
-            otherIds.add(0, currentId)
-            shuffleIndex = 0
-        } else {
-            shuffleIndex = -1
+    private fun filterAndProcessSongs(rawSongs: List<Song>, hideShort: Boolean, blacklisted: Set<String>): List<Song> {
+        return rawSongs.filter { song ->
+            if (hideShort && song.durationMs in 1..29999) {
+                return@filter false
+            }
+            val fName = song.folderName.lowercase()
+            for (bl in blacklisted) {
+                if (bl.isNotBlank() && fName.contains(bl.lowercase())) {
+                    return@filter false
+                }
+            }
+            true
         }
-        shuffleQueue = otherIds
     }
 
     fun loadSongs() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val list = repository.loadDeviceSongs()
-            // Гарантируем, что абсолютно у каждого трека есть яркая обложка:
-            val listWithCovers = list.map { song ->
+            val rawList = repository.loadDeviceSongs()
+            val listWithCovers = rawList.map { song ->
                 if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
                     val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
                     song.copy(coverUrl = gen.toString())
@@ -256,12 +307,59 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     song
                 }
             }
+
+            val filtered = filterAndProcessSongs(listWithCovers, _uiState.value.hideShortSongs, _uiState.value.blacklistedFolders)
+            val sortedFiltered = sortTrackList(filtered, _uiState.value.sortMode)
+
+            val lastSongId = prefs.getLong("lastSongId", -1L)
+            val lastPos = prefs.getLong("lastPositionMs", 0L)
+            val restoredSong = if (_uiState.value.rememberPlayback && lastSongId > 0) {
+                sortedFiltered.firstOrNull { it.id == lastSongId }
+            } else null
+
             _uiState.update {
                 it.copy(
                     songs = listWithCovers,
-                    filteredSongs = listWithCovers,
-                    currentSong = it.currentSong ?: listWithCovers.firstOrNull(),
+                    filteredSongs = sortedFiltered,
+                    currentSong = restoredSong ?: it.currentSong ?: sortedFiltered.firstOrNull(),
+                    currentPositionMs = if (restoredSong != null) lastPos else 0L,
+                    durationMs = restoredSong?.durationMs ?: (sortedFiltered.firstOrNull()?.durationMs ?: 0L),
                     isLoading = false
+                )
+            }
+
+            if (restoredSong != null && lastPos > 0) {
+                try {
+                    exoPlayer.setMediaItem(MediaItem.fromUri(restoredSong.contentUri))
+                    exoPlayer.prepare()
+                    exoPlayer.seekTo(lastPos)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun rescanStorage() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanningStorage = true) }
+            val rawList = repository.loadDeviceSongs()
+            val listWithCovers = rawList.map { song ->
+                if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
+                    val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
+                    song.copy(coverUrl = gen.toString())
+                } else {
+                    song
+                }
+            }
+            val filtered = filterAndProcessSongs(listWithCovers, _uiState.value.hideShortSongs, _uiState.value.blacklistedFolders)
+            val sorted = sortTrackList(filtered, _uiState.value.sortMode)
+            _uiState.update {
+                it.copy(
+                    songs = listWithCovers,
+                    filteredSongs = sorted,
+                    isScanningStorage = false,
+                    statusToastMessage = "Сканирование завершено: найдено ${sorted.size} треков"
                 )
             }
         }
@@ -272,7 +370,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             val mediaItem = MediaItem.fromUri(song.contentUri)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
-            exoPlayer.play()
+
+            if (_uiState.value.fadeInOut) {
+                exoPlayer.volume = 0.0f
+                exoPlayer.play()
+                viewModelScope.launch {
+                    val steps = 10
+                    for (i in 1..steps) {
+                        delay(120)
+                        exoPlayer.volume = (i / steps.toFloat()).coerceIn(0f, 1f)
+                    }
+                }
+            } else {
+                exoPlayer.volume = 1.0f
+                exoPlayer.play()
+            }
 
             val sessionId = exoPlayer.audioSessionId
             if (sessionId > 0) {
@@ -288,7 +400,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
 
-            // Автоматический эквалайзер: подбор наилучшего пресета под жанр трека
+            if (_uiState.value.rememberPlayback) {
+                prefs.edit().putLong("lastSongId", song.id).putLong("lastPositionMs", 0L).apply()
+            }
+
             if (_uiState.value.isAutoEqEnabled) {
                 autoApplyEqPresetForSong(song)
             }
@@ -300,6 +415,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun togglePlayPause() {
         if (exoPlayer.isPlaying) {
             exoPlayer.pause()
+            if (_uiState.value.rememberPlayback) {
+                prefs.edit().putLong("lastPositionMs", exoPlayer.currentPosition).apply()
+            }
         } else {
             if (exoPlayer.playbackState == Player.STATE_IDLE && _uiState.value.currentSong != null) {
                 playSong(_uiState.value.currentSong!!)
@@ -312,71 +430,42 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun seekTo(positionMs: Long) {
         exoPlayer.seekTo(positionMs)
         _uiState.update { it.copy(currentPositionMs = positionMs) }
+        if (_uiState.value.rememberPlayback) {
+            prefs.edit().putLong("lastPositionMs", positionMs).apply()
+        }
     }
 
     fun nextSong() {
         val state = _uiState.value
-        val list = if (state.filteredSongs.isNotEmpty()) state.filteredSongs else state.songs
+        val list = state.filteredSongs
         if (list.isEmpty()) return
 
-        if (state.isShuffle) {
-            if (shuffleQueue.isEmpty() || shuffleQueue.size != list.size) {
-                rebuildShuffleQueue(list, state.currentSong?.id)
-            }
-            shuffleIndex++
-            if (shuffleIndex >= shuffleQueue.size) {
-                if (state.repeatMode == RepeatMode.NONE) {
-                    exoPlayer.pause()
-                    _uiState.update { it.copy(isPlaying = false) }
-                    return
-                }
-                val lastId = shuffleQueue.lastOrNull()
-                rebuildShuffleQueue(list, lastId)
-                shuffleIndex = if (shuffleQueue.size > 1) 1 else 0
-            }
-            val targetId = shuffleQueue.getOrNull(shuffleIndex) ?: list.first().id
-            val nextSong = list.firstOrNull { it.id == targetId } ?: list.first()
-            playSong(nextSong)
+        val nextIndex = if (state.isShuffle) {
+            (list.indices).random()
         } else {
-            val currentIndex = list.indexOfFirst { it.id == state.currentSong?.id }
-            if (currentIndex == list.size - 1 && state.repeatMode == RepeatMode.NONE) {
-                exoPlayer.pause()
-                _uiState.update { it.copy(isPlaying = false) }
-                return
-            }
-            val nextIndex = (currentIndex + 1) % list.size
-            playSong(list[nextIndex])
+            val currentIdx = list.indexOfFirst { it.id == state.currentSong?.id }
+            if (currentIdx != -1 && currentIdx + 1 < list.size) currentIdx + 1 else 0
         }
+        playSong(list[nextIndex])
     }
 
     fun prevSong() {
         val state = _uiState.value
-        val list = if (state.filteredSongs.isNotEmpty()) state.filteredSongs else state.songs
+        val list = state.filteredSongs
         if (list.isEmpty()) return
 
-        if (state.isShuffle) {
-            if (shuffleIndex > 0) {
-                shuffleIndex--
-                val targetId = shuffleQueue[shuffleIndex]
-                val prevSong = list.firstOrNull { it.id == targetId } ?: list.first()
-                playSong(prevSong)
-                return
-            }
+        if (exoPlayer.currentPosition > 3000) {
+            seekTo(0)
+            return
         }
-        val currentIndex = list.indexOfFirst { it.id == state.currentSong?.id }
-        val prevIndex = if (currentIndex > 0) currentIndex - 1 else list.size - 1
+
+        val currentIdx = list.indexOfFirst { it.id == state.currentSong?.id }
+        val prevIndex = if (currentIdx > 0) currentIdx - 1 else list.size - 1
         playSong(list[prevIndex])
     }
 
     fun toggleShuffle() {
-        val newShuffle = !_uiState.value.isShuffle
-        _uiState.update { it.copy(isShuffle = newShuffle) }
-        exoPlayer.shuffleModeEnabled = newShuffle
-        val state = _uiState.value
-        val list = if (state.filteredSongs.isNotEmpty()) state.filteredSongs else state.songs
-        if (newShuffle) {
-            rebuildShuffleQueue(list, state.currentSong?.id)
-        }
+        _uiState.update { it.copy(isShuffle = !it.isShuffle) }
     }
 
     fun toggleRepeat() {
@@ -391,13 +480,15 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun onSearchQueryChanged(query: String) {
         _uiState.update { state ->
             val filtered = if (query.isBlank()) {
-                state.songs
+                filterAndProcessSongs(state.songs, state.hideShortSongs, state.blacklistedFolders)
             } else {
-                state.songs.filter {
-                    it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true)
+                filterAndProcessSongs(state.songs, state.hideShortSongs, state.blacklistedFolders).filter {
+                    it.title.contains(query, ignoreCase = true) ||
+                    it.artist.contains(query, ignoreCase = true) ||
+                    it.album.contains(query, ignoreCase = true)
                 }
             }
-            state.copy(searchQuery = query, filteredSongs = filtered)
+            state.copy(searchQuery = query, filteredSongs = sortTrackList(filtered, state.sortMode))
         }
     }
 
@@ -420,9 +511,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun closeSongMenu() {
         _uiState.update { it.copy(isSongMenuOpen = false, selectedSongForMenu = null) }
     }
-
-    private var sleepTimerJob: Job? = null
-    private var originalExoVolume: Float = 1.0f
 
     fun openSleepTimerDialog(isOpen: Boolean) {
         _uiState.update { it.copy(isSleepTimerDialogOpen = isOpen) }
@@ -449,7 +537,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            // Остановка трека и восстановление базовой громкости
             exoPlayer.pause()
             delay(150)
             exoPlayer.volume = originalExoVolume
@@ -468,6 +555,17 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(isHideTabsDialogOpen = isOpen) }
     }
 
+    fun toggleVisibleTab(tabName: String) {
+        val current = _uiState.value.visibleTabs.toMutableSet()
+        if (current.contains(tabName)) {
+            if (current.size > 1) current.remove(tabName)
+        } else {
+            current.add(tabName)
+        }
+        prefs.edit().putStringSet("visibleTabs", current).apply()
+        _uiState.update { it.copy(visibleTabs = current) }
+    }
+
     fun openPropertiesDialog(isOpen: Boolean, song: Song? = null) {
         _uiState.update { it.copy(isPropertiesDialogOpen = isOpen, selectedSongForMenu = song ?: it.currentSong) }
     }
@@ -476,17 +574,67 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(isThemePickerOpen = isOpen) }
     }
 
+    fun setTheme(theme: String) {
+        prefs.edit().putString("currentTheme", theme).apply()
+        _uiState.update { it.copy(currentTheme = theme, isThemePickerOpen = false) }
+    }
+
     fun openWallpaperPicker(isOpen: Boolean) {
         _uiState.update { it.copy(isWallpaperPickerOpen = isOpen) }
     }
 
-    fun setTheme(theme: String) {
-        _uiState.update { it.copy(currentTheme = theme, isThemePickerOpen = false) }
+    fun openBlacklistFoldersDialog(isOpen: Boolean) {
+        _uiState.update { it.copy(isBlacklistFoldersDialogOpen = isOpen) }
     }
 
-    // -------------------------------------------------------------------------
-    // Equalizer & Audio FX Methods
-    // -------------------------------------------------------------------------
+    fun toggleBlacklistFolder(folderName: String) {
+        val current = _uiState.value.blacklistedFolders.toMutableSet()
+        if (current.contains(folderName)) {
+            current.remove(folderName)
+        } else {
+            current.add(folderName)
+        }
+        prefs.edit().putStringSet("blacklistedFolders", current).apply()
+        _uiState.update { it.copy(blacklistedFolders = current) }
+        val filtered = filterAndProcessSongs(_uiState.value.songs, _uiState.value.hideShortSongs, current)
+        _uiState.update { it.copy(filteredSongs = sortTrackList(filtered, it.sortMode)) }
+    }
+
+    fun openLanguageDialog(isOpen: Boolean) {
+        _uiState.update { it.copy(isLanguageDialogOpen = isOpen) }
+    }
+
+    fun setLanguage(language: String) {
+        prefs.edit().putString("currentLanguage", language).apply()
+        _uiState.update { it.copy(currentLanguage = language, isLanguageDialogOpen = false) }
+    }
+
+    fun openSmartShareDialog(isOpen: Boolean) {
+        _uiState.update { it.copy(isSmartShareDialogOpen = isOpen) }
+    }
+
+    fun clearStatusToast() {
+        _uiState.update { it.copy(statusToastMessage = null) }
+    }
+
+    fun toggleSetting(key: String, value: Boolean) {
+        prefs.edit().putBoolean(key, value).apply()
+        _uiState.update {
+            when (key) {
+                "rememberPlayback" -> it.copy(rememberPlayback = value)
+                "lockScreenPlayer" -> it.copy(lockScreenPlayer = value)
+                "fadeInOut" -> it.copy(fadeInOut = value)
+                "shakeToSkip" -> it.copy(shakeToSkip = value)
+                "gridAlbumView" -> it.copy(gridAlbumView = value)
+                "hideShortSongs" -> {
+                    val updatedFiltered = filterAndProcessSongs(it.songs, value, it.blacklistedFolders)
+                    it.copy(hideShortSongs = value, filteredSongs = sortTrackList(updatedFiltered, it.sortMode))
+                }
+                else -> it
+            }
+        }
+    }
+
     fun openEqualizer() {
         _uiState.update { it.copy(isEqualizerOpen = true) }
     }
@@ -500,28 +648,19 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(isEqEnabled = enabled) }
     }
 
-    fun setEqBand(bandIndex: Int, levelDb: Int) {
-        equalizerManager?.setBandLevel(bandIndex, levelDb)
-        _uiState.update { state ->
-            val updated = state.eqBands.toMutableList()
-            if (bandIndex in updated.indices) {
-                updated[bandIndex] = levelDb
-            }
-            state.copy(eqBands = updated, activeEqPreset = "Пользовательский")
-        }
+    fun applyEqPreset(presetName: String) {
+        equalizerManager?.applyPreset(presetName)
+        val bands = equalizerManager?.getAllBandLevels() ?: _uiState.value.eqBands
+        _uiState.update { it.copy(activeEqPreset = presetName, eqBands = bands) }
     }
 
-    fun applyEqPreset(presetName: String) {
-        val preset = equalizerManager?.applyPreset(presetName) ?: return
-        _uiState.update {
-            it.copy(
-                activeEqPreset = preset.name,
-                eqBands = preset.bands,
-                bassBoost = preset.bassBoost,
-                virtualizer = preset.virtualizer,
-                reverbPreset = preset.reverb
-            )
+    fun setEqBand(band: Int, level: Int) {
+        equalizerManager?.setBandLevel(band, level)
+        val updated = _uiState.value.eqBands.toMutableList()
+        if (band in updated.indices) {
+            updated[band] = level
         }
+        _uiState.update { it.copy(eqBands = updated, activeEqPreset = "Пользовательский") }
     }
 
     fun setBassBoost(strength: Int) {
@@ -534,74 +673,22 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(virtualizer = strength) }
     }
 
-    fun setLoudness(gainDb: Int) {
-        equalizerManager?.setLoudnessGain(gainDb)
-        _uiState.update { it.copy(loudnessGain = gainDb) }
+    fun setLoudness(gain: Int) {
+        equalizerManager?.setLoudnessGain(gain)
+        _uiState.update { it.copy(loudnessGain = gain) }
     }
 
     fun setReverb(preset: Short) {
-        equalizerManager?.setReverb(preset)
+        equalizerManager?.setReverbPreset(preset)
         _uiState.update { it.copy(reverbPreset = preset) }
     }
 
     fun resetEq() {
-        equalizerManager?.reset()
-        _uiState.update {
-            it.copy(
-                activeEqPreset = "Normal (Плоский)",
-                eqBands = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-                bassBoost = 0,
-                virtualizer = 0,
-                loudnessGain = 0,
-                reverbPreset = 0
-            )
-        }
-    }
-
-    fun toggleSetting(key: String, value: Boolean) {
-        _uiState.update {
-            when (key) {
-                "rememberPlayback" -> it.copy(rememberPlayback = value)
-                "lockScreenPlayer" -> it.copy(lockScreenPlayer = value)
-                "fadeInOut" -> it.copy(fadeInOut = value)
-                "shakeToSkip" -> it.copy(shakeToSkip = value)
-                "gridAlbumView" -> it.copy(gridAlbumView = value)
-                "hideShortSongs" -> it.copy(hideShortSongs = value)
-                else -> it
-            }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Visual Cover Art & Online Integration Methods
-    // -------------------------------------------------------------------------
-    private val coverArtRepository = CoverArtRepository(getApplication())
-    private val yandexRepository = YandexMusicRepository()
-
-    fun setCoverStyle(style: CoverStyle) {
-        _uiState.update { it.copy(coverStyle = style) }
-    }
-
-    fun cycleCoverStyle() {
-        val styles = CoverStyle.values()
-        val nextIdx = (styles.indexOf(_uiState.value.coverStyle) + 1) % styles.size
-        setCoverStyle(styles[nextIdx])
-    }
-
-    fun openYandexModal(isOpen: Boolean) {
-        _uiState.update { it.copy(isYandexModalOpen = isOpen) }
-    }
-
-    fun openOnlineSearch(isOpen: Boolean) {
-        _uiState.update { it.copy(isOnlineSearchOpen = isOpen) }
-    }
-
-    fun setSortMode(mode: TrackSortMode) {
-        _uiState.update { state ->
-            val sortedSongs = sortTrackList(state.songs, mode)
-            val sortedFiltered = sortTrackList(state.filteredSongs, mode)
-            state.copy(sortMode = mode, songs = sortedSongs, filteredSongs = sortedFiltered)
-        }
+        applyEqPreset("Normal (Плоский)")
+        setBassBoost(0)
+        setVirtualizer(0)
+        setLoudness(0)
+        setReverb(0)
     }
 
     private fun sortTrackList(list: List<Song>, mode: TrackSortMode): List<Song> {
@@ -693,6 +780,32 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun setCoverStyle(style: CoverStyle) {
+        _uiState.update { it.copy(coverStyle = style) }
+    }
+
+    fun cycleCoverStyle() {
+        val styles = CoverStyle.values()
+        val nextIdx = (styles.indexOf(_uiState.value.coverStyle) + 1) % styles.size
+        setCoverStyle(styles[nextIdx])
+    }
+
+    fun openYandexModal(isOpen: Boolean) {
+        _uiState.update { it.copy(isYandexModalOpen = isOpen) }
+    }
+
+    fun openOnlineSearch(isOpen: Boolean) {
+        _uiState.update { it.copy(isOnlineSearchOpen = isOpen) }
+    }
+
+    fun setSortMode(mode: TrackSortMode) {
+        _uiState.update { state ->
+            val sortedSongs = sortTrackList(state.songs, mode)
+            val sortedFiltered = sortTrackList(state.filteredSongs, mode)
+            state.copy(sortMode = mode, songs = sortedSongs, filteredSongs = sortedFiltered)
+        }
+    }
+
     fun searchOnlineTracks(query: String) {
         _uiState.update { it.copy(onlineSearchQuery = query) }
         val trimmed = query.trim()
@@ -708,7 +821,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         isSearchingOnline = false,
                         onlineSearchResults = results,
-                        onlineSearchError = if (results.isEmpty()) "По запросу \"$trimmed\" ничего не найдено. Попробуйте другой запрос." else null
+                        onlineSearchError = if (results.isEmpty()) "По запросу "$trimmed" ничего не найдено. Попробуйте другой запрос." else null
                     )
                 }
             } catch (e: Exception) {
@@ -724,11 +837,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun downloadOnlineSong(title: String, artist: String, genre: String, audioUrl: String, coverUrl: String) {
         viewModelScope.launch {
-            _uiState.update { 
+            _uiState.update {
                 it.copy(
-                    onlineDownloadProgress = 15, 
+                    onlineDownloadProgress = 15,
                     onlineDownloadMessage = "Подключение к источнику: $title..."
-                ) 
+                )
             }
 
             val context = getApplication<Application>()
@@ -740,7 +853,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
                     val req = Request.Builder()
                         .url(audioUrl)
-                        .header("User-Agent", "MP3PlayerPro-Android/6.8")
+                        .header("User-Agent", "MP3PlayerPro-Android/1.0.0")
                         .build()
                     coverArtRepository.httpClient.newCall(req).execute().use { response ->
                         if (!response.isSuccessful) return@withContext null
@@ -785,9 +898,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
             _uiState.update { state ->
                 val updated = listOf(newSong) + state.songs
+                val sorted = sortTrackList(filterAndProcessSongs(updated, state.hideShortSongs, state.blacklistedFolders), state.sortMode)
                 state.copy(
                     songs = updated,
-                    filteredSongs = updated,
+                    filteredSongs = sorted,
                     onlineDownloadProgress = 100,
                     onlineDownloadMessage = "Успешно скачан трек: $title!",
                     isOnlineSearchOpen = false
@@ -893,9 +1007,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
                 _uiState.update { state ->
                     val combined = (yandexSongs + state.songs).distinctBy { it.id }
+                    val sorted = sortTrackList(filterAndProcessSongs(combined, state.hideShortSongs, state.blacklistedFolders), state.sortMode)
                     state.copy(
                         songs = combined,
-                        filteredSongs = combined,
+                        filteredSongs = sorted,
                         isYandexSyncing = false,
                         yandexSyncProgress = 100,
                         yandexSyncStatus = "Успешно добавлено ${yandexSongs.size} треков!"
@@ -915,6 +1030,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     override fun onCleared() {
         unbindAudioSession()
         progressJob?.cancel()
+        sleepTimerJob?.cancel()
         equalizerManager?.release()
         exoPlayer.release()
         super.onCleared()
