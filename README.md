@@ -112,12 +112,12 @@ MP3 Player Pro поддерживает прямую интеграцию с к�
 
 ### Вариант 1. Скачать готовый APK
 Перейдите во вкладку [Releases](https://github.com/pippopil/Mp3pro-/releases) и скачайте свежий файл:
-* **`MP3PlayerPro-1.0.0-beta09.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
+* **`MP3PlayerPro-1.0.0-beta10.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
 
 ### Вариант 2. Автоматическая сборка через GitHub Actions
 Создайте тег версии:
 ```bash
-git tag -a v1.0.0-beta09 -m "Release v1.0.0-beta09: Android Auto Support, Android 10+ Legacy Storage, 50% Compact Dynamic Island"
-git push origin v1.0.0-beta09
+git tag -a v1.0.0-beta10 -m "Release v1.0.0-beta10: Android Auto Support, PresetReverb Fix, Android 10+ Compatibility, 50% Compact Island"
+git push origin v1.0.0-beta10
 ```
 GitHub Actions соберёт релизный APK и автоматически прикрепит его к релизу.

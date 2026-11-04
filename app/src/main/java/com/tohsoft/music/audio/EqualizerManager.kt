@@ -105,8 +105,8 @@ class EqualizerManager(private var audioSessionId: Int) {
             EqPreset("Dance / House (Танцевальный)", "Жанры", listOf(6, 6, 4, 1, 0, 2, 4, 5, 6, 5), 50, 30, PresetReverb.PRESET_PLATE, 45, -1.0f),
             EqPreset("Techno / Trance (Транс)", "Жанры", listOf(7, 6, 3, 0, -1, 2, 4, 6, 7, 8), 55, 40, PresetReverb.PRESET_PLATE, 55, -1.5f),
             EqPreset("Drum & Bass (DnB 174 BPM)", "Жанры", listOf(10, 8, 3, 4, 1, 2, 4, 5, 7, 6), 75, 30, PresetReverb.PRESET_PLATE, 50, -2.5f),
-            EqPreset("Peak-Time Techno (Берлинский рейв)", "Жанры", listOf(9, 7, 2, -1, 0, 3, 5, 6, 8, 7), 65, 45, PresetReverb.PRESET_STAGE, 60, -2.0f),
-            EqPreset("Phonk & 808 Drift (Фонк 808)", "Жанры", listOf(11, 9, 4, 0, -2, 1, 4, 6, 7, 8), 80, 35, PresetReverb.PRESET_STAGE, 55, -2.5f),
+            EqPreset("Peak-Time Techno (Берлинский рейв)", "Жанры", listOf(9, 7, 2, -1, 0, 3, 5, 6, 8, 7), 65, 45, PresetReverb.PRESET_LARGEHALL, 60, -2.0f),
+            EqPreset("Phonk & 808 Drift (Фонк 808)", "Жанры", listOf(11, 9, 4, 0, -2, 1, 4, 6, 7, 8), 80, 35, PresetReverb.PRESET_PLATE, 55, -2.5f),
 
             // Бас и драйв
             EqPreset("Bass Boost Ultra (Ультра Бас)", "Бас и драйв", listOf(12, 10, 8, 4, 1, 0, 0, 0, 0, 0), 85, 10, PresetReverb.PRESET_NONE, 20, -3.0f),
@@ -123,7 +123,7 @@ class EqualizerManager(private var audioSessionId: Int) {
             EqPreset("Warm Analog (Тёплый ламповый звук)", "Акустика", listOf(5, 4, 4, 3, 2, 1, 0, -1, -2, -3), 40, 15, PresetReverb.PRESET_MEDIUMROOM, 15, 0.5f),
             EqPreset("Lounge & Chillout (Лаунж отдых)", "Акустика", listOf(4, 3, 2, 2, 1, 1, 2, 3, 4, 4), 30, 35, PresetReverb.PRESET_MEDIUMROOM, 30, 0.0f),
             EqPreset("Movie / Cinematic (Кино и фильмы)", "Акустика", listOf(8, 6, 3, 1, 0, 2, 4, 6, 7, 8), 65, 50, PresetReverb.PRESET_LARGEHALL, 50, -1.5f),
-            EqPreset("Gaming Dynamic (Игры и экшн)", "Акустика", listOf(8, 7, 3, -1, -2, 2, 5, 7, 8, 9), 70, 55, PresetReverb.PRESET_STAGE, 65, -2.0f),
+            EqPreset("Gaming Dynamic (Игры и экшн)", "Акустика", listOf(8, 7, 3, -1, -2, 2, 5, 7, 8, 9), 70, 55, PresetReverb.PRESET_LARGEHALL, 65, -2.0f),
 
             // Устройства
             EqPreset("In-Ear Earphones (Вакуумные затычки)", "Устройства", listOf(3, 2, -1, -1, 1, 2, 4, 5, 5, 6), 30, 35, PresetReverb.PRESET_SMALLROOM, 35, 0.0f),
