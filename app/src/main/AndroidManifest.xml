@@ -27,6 +27,9 @@
     <!-- Разрешение для установки рингтонов в системе -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
+    <!-- Разрешение для модификации звуковых настроек и системного эквалайзера (AudioEffect API) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- Разрешение для плавающего визуального островка фронтальной камеры при свернутом приложении -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
@@ -68,6 +71,13 @@
                 <data android:scheme="content" />
                 <data android:mimeType="audio/*" />
             </intent-filter>
+
+            <!-- Системный эквалайзер: перехват вызова настроек эквалайзера из Яндекс Музыки, Spotify и настроек системы -->
+            <intent-filter>
+                <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.CATEGORY_PREFERENCE" />
+            </intent-filter>
         </activity>
 
         <!-- Служба воспроизведения Jetpack Media3 с поддержкой MediaSession и Android Auto -->
@@ -86,6 +96,22 @@
         <service
             android:name=".service.DynamicIslandOverlayService"
             android:exported="false" />
+
+        <!-- Приёмник широковещательных сообщений звуковых сессий сторонних плееров (Яндекс Музыка, Spotify, VK и др.) -->
+        <receiver
+            android:name=".receiver.AudioSessionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION" />
+                <action android:name="android.media.action.CLOSE_AUDIO_EFFECT_CONTROL_SESSION" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Фоновая служба глобального системного эквалайзера -->
+        <service
+            android:name=".service.GlobalEqualizerService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
     </application>
 </manifest>

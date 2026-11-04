@@ -153,4 +153,12 @@ class MainActivity : ComponentActivity() {
             startService(intent)
         } catch (ignored: Exception) {}
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == "android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL") {
+            viewModel.openEqualizer()
+        }
+    }
 }

@@ -82,6 +82,25 @@
 
 ---
 
+## 🎛️ Использование как Системный Эквалайзер для Яндекс Музыки, Spotify и сторонних плееров
+
+MP3 Player Pro умеет работать как **полноценный системный DSP-процессор звука** (аналогично Poweramp Equalizer и Wavelet), улучшая звук в любых онлайн-сервисах и играх:
+
+### Как это устроено:
+1. **Системный перехват звуковых сессий (`AudioEffect API`):**
+   * В приложении зарегистрирован системный приёмник `AudioSessionReceiver`, слушающий интенты `AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION` и `ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION`.
+   * Когда на телефоне запускается **Яндекс Музыка**, **Spotify**, **VK Музыка**, **YouTube Music**, **Звук (Сбер)** или **Deezer**, они передают в систему свой `audioSessionId`.
+   * Фоновая служба `GlobalEqualizerService` мгновенно подхватывает этот ID и подключает к стороннему звуку наш 10-полосный эквалайзер, параметрические фильтры, усилитель баса (Bass Boost) и 3D-звучание.
+2. **Перехват вызова настроек эквалайзера (`DISPLAY_AUDIO_EFFECT_CONTROL_PANEL`):**
+   * В манифесте объявлен фильтр `android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL`.
+   * Когда вы нажимаете **«Эквалайзер»** внутри официального приложения Яндекс Музыки или Spotify, Android предлагает открыть именно **MP3 Player Pro** как ваш главный эквалайзер.
+3. **Глобальный системный аудиомикс (Global Session 0):**
+   * Если стороннее приложение не отправляет широковещательные интенты (например, видео в браузере, Telegram-голосовые или TikTok), MP3 Player Pro подключается к сессии `0` — главному аппаратному микшеру Android, обрабатывая абсолютно весь звук на устройстве!
+4. **Уведомление со статусом обработки в шторке:**
+   * В панели уведомлений появляется статусная карточка: *«🎛️ MP3 Pro Эквалайзер активен: Обработка звука для Яндекс Музыка (Сессия #142)»* с кнопкой быстрого отключения или перехода к настройке пресетов.
+
+---
+
 ## 🔌 Подключение Яндекс Музыки: Пошаговая инструкция
 
 MP3 Player Pro поддерживает прямую интеграцию с каталогом и вашей личной библиотекой Яндекс Музыки.
@@ -112,12 +131,12 @@ MP3 Player Pro поддерживает прямую интеграцию с к�
 
 ### Вариант 1. Скачать готовый APK
 Перейдите во вкладку [Releases](https://github.com/pippopil/Mp3pro-/releases) и скачайте свежий файл:
-* **`MP3PlayerPro-1.0.0-beta10.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
+* **`MP3PlayerPro-1.0.0-beta11.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
 
 ### Вариант 2. Автоматическая сборка через GitHub Actions
 Создайте тег версии:
 ```bash
-git tag -a v1.0.0-beta10 -m "Release v1.0.0-beta10: Android Auto Support, PresetReverb Fix, Android 10+ Compatibility, 50% Compact Island"
-git push origin v1.0.0-beta10
+git tag -a v1.0.0-beta11 -m "Release v1.0.0-beta11: System Equalizer for Yandex Music & Spotify, AudioSessionReceiver, Global Equalizer Service"
+git push origin v1.0.0-beta11
 ```
 GitHub Actions соберёт релизный APK и автоматически прикрепит его к релизу.

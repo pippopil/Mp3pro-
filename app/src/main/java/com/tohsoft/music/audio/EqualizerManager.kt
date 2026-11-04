@@ -138,7 +138,7 @@ class EqualizerManager(private var audioSessionId: Int) {
     }
 
     fun attachAudioSession(newSessionId: Int) {
-        if (newSessionId > 0 && newSessionId != audioSessionId) {
+        if (newSessionId >= 0 && (newSessionId != audioSessionId || equalizer == null)) {
             audioSessionId = newSessionId
             release()
             initEffects()
@@ -147,7 +147,7 @@ class EqualizerManager(private var audioSessionId: Int) {
 
     private fun initEffects() {
         try {
-            if (audioSessionId > 0) {
+            if (audioSessionId >= 0) {
                 equalizer = Equalizer(0, audioSessionId).apply {
                     enabled = isEnabled
                 }
