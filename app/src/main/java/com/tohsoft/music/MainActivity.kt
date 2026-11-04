@@ -129,11 +129,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
                                 data = Uri.parse("mailto:support@mp3playerpro.app")
                                 putExtra(Intent.EXTRA_SUBJECT, "MP3 Player Pro - Отзыв")
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Устройство: ${Build.MANUFACTURER} ${Build.MODEL}
-Android: ${Build.VERSION.RELEASE}"
-                                )
+                                val deviceInfo = "Устройство: " + Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")"
+                                putExtra(Intent.EXTRA_TEXT, deviceInfo)
                             }
                             startActivity(Intent.createChooser(emailIntent, "Отправить отзыв"))
                         } catch (e: Exception) {

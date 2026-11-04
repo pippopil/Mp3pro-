@@ -201,6 +201,12 @@ class EqualizerManager(private var audioSessionId: Int) {
         }
     }
 
+    fun getAllBandLevels(): List<Int> = currentBands.toList()
+
+    fun setReverbPreset(preset: Short) {
+        setReverb(preset)
+    }
+
     fun applyPreset(presetName: String): EqPreset? {
         val preset = PRESETS.firstOrNull { it.name == presetName } ?: return null
         preset.bands.forEachIndexed { index, level ->
