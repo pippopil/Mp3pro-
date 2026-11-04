@@ -96,13 +96,13 @@ class DynamicIslandOverlayService : Service() {
         val pillLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), dp(6f), dp(12f), dp(6f))
+            setPadding(dp(6f), dp(3f), dp(6f), dp(3f))
 
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(24f).toFloat()
+                cornerRadius = dp(12f).toFloat()
                 setColor(Color.parseColor("#F0080D1A"))
-                setStroke(dp(1.5f), Color.parseColor("#06B6D4"))
+                setStroke(dp(1f), Color.parseColor("#06B6D4"))
             }
 
             setOnClickListener {
@@ -114,31 +114,31 @@ class DynamicIslandOverlayService : Service() {
         }
 
         val cameraDot = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(10f), dp(10f)).apply {
-                marginEnd = dp(8f)
+            layoutParams = LinearLayout.LayoutParams(dp(5f), dp(5f)).apply {
+                marginEnd = dp(4f)
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.BLACK)
-                setStroke(dp(1f), Color.parseColor("#334155"))
+                setStroke(dp(0.5f), Color.parseColor("#334155"))
             }
         }
         pillLayout.addView(cameraDot)
 
         val frogView = TextView(this).apply {
             text = "🐸"
-            textSize = 15f
+            textSize = 10f
             tag = "island_frog"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                marginEnd = dp(6f)
+                marginEnd = dp(3f)
             }
         }
         pillLayout.addView(frogView)
 
-        frogAnimator = ObjectAnimator.ofFloat(frogView, "translationY", 0f, -dp(4f).toFloat()).apply {
+        frogAnimator = ObjectAnimator.ofFloat(frogView, "translationY", 0f, -dp(2f).toFloat()).apply {
             duration = 260
             repeatMode = ValueAnimator.REVERSE
             repeatCount = ValueAnimator.INFINITE
@@ -147,35 +147,33 @@ class DynamicIslandOverlayService : Service() {
 
         val textContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dp(130f), LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = LinearLayout.LayoutParams(dp(65f), LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
         val titleTv = TextView(this).apply {
             text = title
             tag = "island_title"
             setTextColor(Color.WHITE)
-            textSize = 11f
+            textSize = 8.5f
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         textContainer.addView(titleTv)
 
         val hintTv = TextView(this).apply {
-            text = if (artist.isNotBlank()) artist else "Нажмите для открытия"
+            text = if (artist.isNotBlank()) artist else "Плеер"
             setTextColor(Color.parseColor("#06B6D4"))
-            textSize = 9f
+            textSize = 7f
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         textContainer.addView(hintTv)
 
-        pillLayout.addView(textContainer)
-
         val noteTv = TextView(this).apply {
             text = "♪"
             setTextColor(Color.parseColor("#67E8F9"))
-            textSize = 12f
-            setPadding(dp(4f), 0, 0, 0)
+            textSize = 8f
+            setPadding(dp(2f), 0, 0, 0)
         }
         pillLayout.addView(noteTv)
 
