@@ -1,7 +1,7 @@
 # 🎵 MP3 Player Pro — Modern Android 14/15 Audiophile Edition
 
 [![Android 14/15 Ready](https://img.shields.io/badge/Target%20SDK-34%20(Android%2014%2F15)-00C996?style=for-the-badge&logo=android)](https://github.com/pippopil/Mp3pro-)
-[![Version](https://img.shields.io/badge/Release-v1.0.0--beta13-0284C7?style=for-the-badge&logo=github)](https://github.com/pippopil/Mp3pro-/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.0--beta14-0284C7?style=for-the-badge&logo=github)](https://github.com/pippopil/Mp3pro-/releases)
 [![Jetpack Media3](https://img.shields.io/badge/Audio%20Engine-Jetpack%20Media3%20ExoPlayer-38BDF8?style=for-the-badge)](https://developer.android.com/media/media3)
 [![Poweramp-Style EQ](https://img.shields.io/badge/Equalizer-10--Band%20%2B%20Parametric%20PRO-F59E0B?style=for-the-badge)](https://github.com/pippopil/Mp3pro-)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-8B5CF6?style=for-the-badge&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
@@ -64,7 +64,7 @@ MP3 Player Pro умеет работать как **системный звук�
 * 📱 **Измените песню, встряхивая устройство:** акселерометр телефона переключает на следующий трек при энергичном встряхивании.
 * ▦ **Просмотр сетки альбомов:** переключение между списком и двухколоночной сеткой обложек.
 * 💬 **Обратная связь / ⭐ Оценить / 🔗 Поделиться:** интеграция с системными интентами Android.
-* 🏷️ **Реальный номер версии сборки:** внизу экрана настроек отображается реальная информация из `PackageManager`: `MP3 Player Pro v1.0.0-beta13 (Сборка 12)`.
+* 🏷️ **Реальный номер версии сборки:** внизу экрана настроек отображается реальная информация из `PackageManager`: `MP3 Player Pro v1.0.0-beta14 (Сборка 12)`.
 
 ### 7. 🚗 Поддержка Android Auto и Автомобильный Дисплей
 * **Полная интеграция с Android Auto:** приложение сертифицировано автомобильным дескриптором `automotive_app_desc.xml` и службой `androidx.media3.session.MediaLibraryService`.
@@ -110,12 +110,12 @@ MP3 Player Pro поддерживает прямую интеграцию с к�
 
 ### Вариант 1. Скачать готовый APK
 Перейдите во вкладку [Releases](https://github.com/pippopil/Mp3pro-/releases) и скачайте свежий файл:
-* **`MP3PlayerPro-1.0.0-beta13.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
+* **`MP3PlayerPro-1.0.0-beta14.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
 
 ### Вариант 2. Автоматическая сборка через GitHub Actions
 Создайте тег версии:
 ```bash
-git tag -a v1.0.0-beta13 -m "Release v1.0.0-beta13"
-git push origin v1.0.0-beta13
+git tag -a v1.0.0-beta14 -m "Release v1.0.0-beta14"
+git push origin v1.0.0-beta14
 ```
 GitHub Actions соберёт релизный APK и автоматически прикрепит его к релизу.

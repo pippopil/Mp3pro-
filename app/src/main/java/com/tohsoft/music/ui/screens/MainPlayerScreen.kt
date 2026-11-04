@@ -1478,7 +1478,7 @@ fun SettingsTabContent(
                     @Suppress("DEPRECATION")
                     context.packageManager.getPackageInfo(context.packageName, 0)
                 }
-                val ver = pInfo.versionName ?: "1.0.0-beta13"
+                val ver = pInfo.versionName ?: "1.0.0-beta14"
                 val code = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                     pInfo.longVersionCode
                 } else {
@@ -1487,7 +1487,7 @@ fun SettingsTabContent(
                 }
                 Pair(ver, code)
             } catch (e: Exception) {
-                Pair("1.0.0-beta13", 12L)
+                Pair("1.0.0-beta14", 12L)
             }
         }
         Column(

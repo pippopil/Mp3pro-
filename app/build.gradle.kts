@@ -16,8 +16,8 @@ android {
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         val ciVersionName = System.getenv("VERSION_NAME")
 
-        versionCode = ciRunNumber ?: 13
-        versionName = ciVersionName ?: "1.0.0-beta13"
+        versionCode = ciRunNumber ?: 14
+        versionName = ciVersionName ?: "1.0.0-beta14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled = true

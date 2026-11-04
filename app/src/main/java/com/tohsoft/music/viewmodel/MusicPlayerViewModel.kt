@@ -821,7 +821,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         isSearchingOnline = false,
                         onlineSearchResults = results,
-                        onlineSearchError = if (results.isEmpty()) "По запросу "$trimmed" ничего не найдено. Попробуйте другой запрос." else null
+                        val notFoundMsg = "По запросу " + trimmed + " ничего не найдено. Попробуйте другой запрос."
+                        onlineSearchError = if (results.isEmpty()) notFoundMsg else null
                     )
                 }
             } catch (e: Exception) {
