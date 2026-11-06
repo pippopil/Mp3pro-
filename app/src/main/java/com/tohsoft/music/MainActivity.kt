@@ -10,6 +10,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -99,6 +100,44 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onLoudnessChange = { viewModel.setLoudness(it) },
                     onReverbChange = { viewModel.setReverb(it) },
                     onResetEq = { viewModel.resetEq() },
+                    onToggleParametricMode = { viewModel.setParametricMode(it) },
+                    onToggleAutoEq = { viewModel.toggleAutoEq(it) },
+                    onPreampChange = { viewModel.setPreamp(it) },
+                    onToggleLimiter = { viewModel.toggleLimiter(it) },
+                    onTrebleChange = { viewModel.setTreble(it) },
+                    onRequestOverlayPermission = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            if (!Settings.canDrawOverlays(this)) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:" + packageName)
+                                )
+                                startActivity(intent)
+                                Toast.makeText(this, "Разрешите показ поверх других приложений для островка", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this, "Островок активен! При сворачивании появится у камеры 🐸", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onToggleParametricMode = { viewModel.setParametricMode(it) },
+                    onToggleAutoEq = { viewModel.toggleAutoEq(it) },
+                    onPreampChange = { viewModel.setPreamp(it) },
+                    onToggleLimiter = { viewModel.toggleLimiter(it) },
+                    onTrebleChange = { viewModel.setTreble(it) },
+                    onRequestOverlayPermission = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            if (!Settings.canDrawOverlays(this)) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:" + packageName)
+                                )
+                                startActivity(intent)
+                                Toast.makeText(this, "Пожалуйста, разрешите отображение поверх других приложений для островка у камеры 🐸", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this, "Островок у фронтальной камеры активен при сворачивании! 🐸", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
                     onSetCoverStyle = { style -> viewModel.setCoverStyle(style) },
                     onCycleCoverStyle = { viewModel.cycleCoverStyle() },
                     onOpenYandexModal = { viewModel.openYandexModal(true) },
@@ -222,15 +261,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onStop()
         val state = viewModel.uiState.value
         if (state.isPlaying && state.currentSong != null) {
-            val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
-                action = DynamicIslandOverlayService.ACTION_SHOW
-                putExtra(DynamicIslandOverlayService.EXTRA_TITLE, state.currentSong.title)
-                putExtra(DynamicIslandOverlayService.EXTRA_ARTIST, state.currentSong.artist)
-                putExtra(DynamicIslandOverlayService.EXTRA_IS_PLAYING, true)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
+                val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
+                    action = DynamicIslandOverlayService.ACTION_SHOW
+                    putExtra(DynamicIslandOverlayService.EXTRA_TITLE, state.currentSong.title)
+                    putExtra(DynamicIslandOverlayService.EXTRA_ARTIST, state.currentSong.artist)
+                    putExtra(DynamicIslandOverlayService.EXTRA_IS_PLAYING, true)
+                }
+                try {
+                    startService(intent)
+                } catch (ignored: Exception) {}
             }
-            try {
-                startService(intent)
-            } catch (ignored: Exception) {}
         }
     }
 

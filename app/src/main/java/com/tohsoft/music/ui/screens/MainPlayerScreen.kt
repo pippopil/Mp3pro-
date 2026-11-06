@@ -115,7 +115,13 @@ fun MainPlayerScreen(
     onClearStatusToast: () -> Unit = {},
     onFeedback: () -> Unit = {},
     onRateApp: () -> Unit = {},
-    onShareApp: () -> Unit = {}
+    onShareApp: () -> Unit = {},
+    onToggleParametricMode: (Boolean) -> Unit = {},
+    onToggleAutoEq: (Boolean) -> Unit = {},
+    onPreampChange: (Float) -> Unit = {},
+    onToggleLimiter: (Boolean) -> Unit = {},
+    onTrebleChange: (Int) -> Unit = {},
+    onRequestOverlayPermission: () -> Unit = {}
 ) {
     val bgBrush = Brush.verticalGradient(
         listOf(ColorDarkBgTop, ColorDarkBgMid, ColorDarkBgBottom)
@@ -231,7 +237,8 @@ fun MainPlayerScreen(
                     onSearchCover = onSearchCover,
                     onSleepTimerClick = onSleepTimerClick,
                     onOpenEqualizer = onOpenEqualizer,
-                    onMenuClick = { onSongMenuClick(song) }
+                    onMenuClick = { onSongMenuClick(song) },
+                    onRequestOverlayPermission = onRequestOverlayPermission
                 )
             }
         }
@@ -250,6 +257,13 @@ fun MainPlayerScreen(
                 virtualizer = uiState.virtualizer,
                 loudness = uiState.loudnessGain,
                 reverbPreset = uiState.reverbPreset,
+                isParametricMode = uiState.isParametricMode,
+                isAutoEqEnabled = uiState.isAutoEqEnabled,
+                preampDb = uiState.eqPreampDb,
+                isLimiterEnabled = uiState.isLimiterEnabled,
+                trebleLevel = uiState.trebleLevel,
+                currentSongTitle = uiState.currentSong?.title ?: "MP3 Player Pro",
+                currentSongGenre = uiState.currentSong?.genre ?: "Все",
                 onClose = onCloseEqualizer,
                 onToggleEnabled = onToggleEq,
                 onSelectPreset = onSelectEqPreset,
@@ -258,7 +272,12 @@ fun MainPlayerScreen(
                 onVirtualizerChange = onVirtualizerChange,
                 onLoudnessChange = onLoudnessChange,
                 onReverbChange = onReverbChange,
-                onResetEq = onResetEq
+                onResetEq = onResetEq,
+                onToggleParametricMode = onToggleParametricMode,
+                onToggleAutoEq = onToggleAutoEq,
+                onPreampChange = onPreampChange,
+                onToggleLimiter = onToggleLimiter,
+                onTrebleChange = onTrebleChange
             )
         }
 
@@ -951,7 +970,8 @@ fun FullPlayerScreen(
     onSearchCover: () -> Unit,
     onSleepTimerClick: () -> Unit,
     onOpenEqualizer: () -> Unit,
-    onMenuClick: () -> Unit
+    onMenuClick: () -> Unit,
+    onRequestOverlayPermission: () -> Unit = {}
 ) {
     val nebulaBrush = Brush.verticalGradient(
         listOf(
@@ -1085,6 +1105,25 @@ fun FullPlayerScreen(
                     Text("•", color = ColorTextMuted, fontSize = 10.sp)
                     Spacer(Modifier.width(6.dp))
                     Text("Hi-Res 24-bit 96kHz", color = Color.White, fontSize = 10.sp)
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // Dynamic Island Camera Pill with Frog Mascot
+            Surface(
+                color = Color(0xFF142B1E),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0xFF22C55E)),
+                modifier = Modifier.clickable { onRequestOverlayPermission() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("🐸", fontSize = 11.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Островок", color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -1255,7 +1294,13 @@ fun SettingsTabContent(
     onOpenSmartShare: () -> Unit = {},
     onFeedback: () -> Unit = {},
     onRateApp: () -> Unit = {},
-    onShareApp: () -> Unit = {}
+    onShareApp: () -> Unit = {},
+    onToggleParametricMode: (Boolean) -> Unit = {},
+    onToggleAutoEq: (Boolean) -> Unit = {},
+    onPreampChange: (Float) -> Unit = {},
+    onToggleLimiter: (Boolean) -> Unit = {},
+    onTrebleChange: (Int) -> Unit = {},
+    onRequestOverlayPermission: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1367,34 +1412,65 @@ fun SettingsTabContent(
             }
         }
 
-        // SAMSUNG DOLBY ATMOS & SOUNDALIVE CARD
+        // POWERAMP-STYLE PRO STUDIO EQUALIZER CARD
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(vertical = 4.dp)
                 .clickable(onClick = onOpenEqualizer),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF101B38)),
-            border = BorderStroke(1.dp, ColorTurquoise.copy(alpha = 0.4f))
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF10192A)),
+            border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.5f))
         ) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(Color(0x3300C996), CircleShape),
+                        .size(40.dp)
+                        .background(Color(0x3322C55E), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("🎚", fontSize = 18.sp)
+                    Text("🎛️", fontSize = 20.sp)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Samsung Dolby Atmos & SoundAlive", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("10-полосный эквалайзер, Bass Boost, Виртуализатор 3D", color = ColorTextMuted, fontSize = 12.sp)
+                    Text("Студийный Эквалайзер PRO (Poweramp Style)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("10-полосный + Параметрический EQ, 36 пресетов, Авто-EQ", color = Color(0xFF86EFAC), fontSize = 11.sp)
                 }
-                Text("›", color = ColorTurquoise, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("›", color = Color(0xFF22C55E), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // DYNAMIC ISLAND CAMERA FROG OVERLAY CARD
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clickable { onRequestOverlayPermission() },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF14241B)),
+            border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.4f))
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0x3322C55E), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🐸", fontSize = 20.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Dynamic Island у камеры (Лягушонок)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Компактный островок с танцующим лягушонком при сворачивании", color = Color(0xFF86EFAC), fontSize = 11.sp)
+                }
+                Text("›", color = Color(0xFF22C55E), fontSize = 22.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -1487,7 +1563,7 @@ fun SettingsTabContent(
                 }
                 Pair(ver, code)
             } catch (e: Exception) {
-                Pair("1.0.0-beta14", 12L)
+                Pair("1.0.0-beta16", 16L)
             }
         }
         Column(
