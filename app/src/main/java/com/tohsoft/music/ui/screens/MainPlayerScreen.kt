@@ -1563,7 +1563,7 @@ fun SettingsTabContent(
                 }
                 Pair(ver, code)
             } catch (e: Exception) {
-                Pair("1.0.0-beta16", 16L)
+                Pair("1.0.0-beta17", 17L)
             }
         }
         Column(
