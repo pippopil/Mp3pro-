@@ -817,11 +817,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update { it.copy(isSearchingOnline = true, onlineSearchError = null) }
             try {
                 val results = coverArtRepository.searchOnlineMusic(trimmed)
+                val notFoundMsg = "По запросу " + trimmed + " ничего не найдено. Попробуйте другой запрос."
                 _uiState.update {
                     it.copy(
                         isSearchingOnline = false,
                         onlineSearchResults = results,
-                        val notFoundMsg = "По запросу " + trimmed + " ничего не найдено. Попробуйте другой запрос."
                         onlineSearchError = if (results.isEmpty()) notFoundMsg else null
                     )
                 }
