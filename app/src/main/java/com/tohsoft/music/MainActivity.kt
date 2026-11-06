@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 Toast.makeText(this, "Островок активен! При сворачивании появится у камеры 🐸", Toast.LENGTH_SHORT).show()
                             }
                         }
+                    },
                     onSetCoverStyle = { style -> viewModel.setCoverStyle(style) },
                     onCycleCoverStyle = { viewModel.cycleCoverStyle() },
                     onOpenYandexModal = { viewModel.openYandexModal(true) },
