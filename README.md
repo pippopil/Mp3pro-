@@ -1,7 +1,7 @@
 # 🎵 MP3 Player Pro — Modern Android 14/15 Audiophile Edition
 
 [![Android 14/15 Ready](https://img.shields.io/badge/Target%20SDK-34%20(Android%2014%2F15)-00C996?style=for-the-badge&logo=android)](https://github.com/pippopil/Mp3pro-)
-[![Version](https://img.shields.io/badge/Release-v1.0.0--beta16-0284C7?style=for-the-badge&logo=github)](https://github.com/pippopil/Mp3pro-/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.0--beta17-0284C7?style=for-the-badge&logo=github)](https://github.com/pippopil/Mp3pro-/releases)
 [![Jetpack Media3](https://img.shields.io/badge/Audio%20Engine-Jetpack%20Media3%20ExoPlayer-38BDF8?style=for-the-badge)](https://developer.android.com/media/media3)
 [![Poweramp-Style EQ](https://img.shields.io/badge/Equalizer-10--Band%20%2B%20Parametric%20PRO-F59E0B?style=for-the-badge)](https://github.com/pippopil/Mp3pro-)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-8B5CF6?style=for-the-badge&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)

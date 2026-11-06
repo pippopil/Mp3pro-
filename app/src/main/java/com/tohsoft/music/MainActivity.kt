@@ -118,26 +118,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 Toast.makeText(this, "Островок активен! При сворачивании появится у камеры 🐸", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    },
-                    onToggleParametricMode = { viewModel.setParametricMode(it) },
-                    onToggleAutoEq = { viewModel.toggleAutoEq(it) },
-                    onPreampChange = { viewModel.setPreamp(it) },
-                    onToggleLimiter = { viewModel.toggleLimiter(it) },
-                    onTrebleChange = { viewModel.setTreble(it) },
-                    onRequestOverlayPermission = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            if (!Settings.canDrawOverlays(this)) {
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:" + packageName)
-                                )
-                                startActivity(intent)
-                                Toast.makeText(this, "Пожалуйста, разрешите отображение поверх других приложений для островка у камеры 🐸", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(this, "Островок у фронтальной камеры активен при сворачивании! 🐸", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
                     onSetCoverStyle = { style -> viewModel.setCoverStyle(style) },
                     onCycleCoverStyle = { viewModel.cycleCoverStyle() },
                     onOpenYandexModal = { viewModel.openYandexModal(true) },
