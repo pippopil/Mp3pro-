@@ -73,6 +73,9 @@ class DynamicIslandOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        val density = resources.displayMetrics.density
+        fun dp(v: Float) = (v * density).toInt()
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -83,11 +86,9 @@ class DynamicIslandOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 18
+            x = dp(52f) // Смещаем вправо, чтобы центральная селфи-камера не перекрывала лягушонка
+            y = dp(8f)
         }
-
-        val density = resources.displayMetrics.density
-        fun dp(v: Float) = (v * density).toInt()
 
         val rootLayout = FrameLayout(this).apply {
             setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
@@ -96,84 +97,119 @@ class DynamicIslandOverlayService : Service() {
         val pillLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6f), dp(3f), dp(6f), dp(3f))
+            setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
 
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(12f).toFloat()
+                cornerRadius = dp(16f).toFloat()
                 setColor(Color.parseColor("#F0080D1A"))
-                setStroke(dp(1f), Color.parseColor("#06B6D4"))
+                setStroke(dp(1.2f), Color.parseColor("#10B981"))
             }
 
+            // Нажатие разворачивает плеер
             setOnClickListener {
                 val launchIntent = Intent(context, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 }
                 context.startActivity(launchIntent)
             }
+
+            // Возможность перетаскивания островка по экрану
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+            var isDragging = false
+
+            setOnTouchListener { v, event ->
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        isDragging = false
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val dx = (event.rawX - initialTouchX).toInt()
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        if (Math.abs(dx) > dp(4f) || Math.abs(dy) > dp(4f)) {
+                            isDragging = true
+                            params.x = initialX + dx
+                            params.y = initialY + dy
+                            try {
+                                windowManager?.updateViewLayout(overlayLayout, params)
+                            } catch (ignored: Exception) {}
+                            true
+                        } else false
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        if (isDragging) true else {
+                            v.performClick()
+                            false
+                        }
+                    }
+                    else -> false
+                }
+            }
         }
 
-        val cameraDot = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(5f), dp(5f)).apply {
-                marginEnd = dp(4f)
-            }
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.BLACK)
-                setStroke(dp(0.5f), Color.parseColor("#334155"))
-            }
-        }
-        pillLayout.addView(cameraDot)
-
+        // Крупный анимированный лягушонок
         val frogView = TextView(this).apply {
             text = "🐸"
-            textSize = 10f
+            textSize = 17f
             tag = "island_frog"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                marginEnd = dp(3f)
+                marginEnd = dp(6f)
             }
         }
         pillLayout.addView(frogView)
 
-        frogAnimator = ObjectAnimator.ofFloat(frogView, "translationY", 0f, -dp(2f).toFloat()).apply {
-            duration = 260
+        frogAnimator = ObjectAnimator.ofFloat(frogView, "translationY", 0f, -dp(3f).toFloat()).apply {
+            duration = 280
             repeatMode = ValueAnimator.REVERSE
             repeatCount = ValueAnimator.INFINITE
             start()
         }
 
+        // Блок названия трека и исполнителя
         val textContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dp(65f), LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = LinearLayout.LayoutParams(dp(85f), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(6f)
+            }
         }
 
         val titleTv = TextView(this).apply {
             text = title
             tag = "island_title"
             setTextColor(Color.WHITE)
-            textSize = 8.5f
+            textSize = 10.5f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         textContainer.addView(titleTv)
 
         val hintTv = TextView(this).apply {
-            text = if (artist.isNotBlank()) artist else "Плеер"
-            setTextColor(Color.parseColor("#06B6D4"))
-            textSize = 7f
+            text = if (artist.isNotBlank()) artist else "MP3 Player Pro"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 8.5f
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         textContainer.addView(hintTv)
+        pillLayout.addView(textContainer)
 
         val noteTv = TextView(this).apply {
-            text = "♪"
-            setTextColor(Color.parseColor("#67E8F9"))
-            textSize = 8f
-            setPadding(dp(2f), 0, 0, 0)
+            text = "♪ ♫"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 11f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         pillLayout.addView(noteTv)
 

@@ -57,6 +57,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         checkAndRequestPermissions()
 
+        val filter = IntentFilter(MusicPlaybackService.ACTION_APP_SHUTDOWN)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(shutdownReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(shutdownReceiver, filter)
+        }
+
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val uiState by viewModel.uiState.collectAsState()
@@ -238,11 +245,35 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private val shutdownReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == MusicPlaybackService.ACTION_APP_SHUTDOWN) {
+                finishAffinity()
+            }
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         val state = viewModel.uiState.value
-        if (state.isPlaying && state.currentSong != null) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
+        if (state.currentSong != null) {
+            // Размещаем уведомление управления в выдвижной шторке Android
+            val notifIntent = Intent(this, MusicPlaybackService::class.java).apply {
+                action = if (state.isPlaying) MusicPlaybackService.ACTION_UPDATE_NOTIFICATION else MusicPlaybackService.ACTION_PAUSE_NOTIFICATION
+                putExtra("extra_title", state.currentSong.title)
+                putExtra("extra_artist", state.currentSong.artist)
+                putExtra("extra_is_playing", state.isPlaying)
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(notifIntent)
+                } else {
+                    startService(notifIntent)
+                }
+            } catch (ignored: Exception) {}
+
+            // Показываем плавающий Dynamic Island у фронтальной камеры
+            if (state.isPlaying && (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))) {
                 val intent = Intent(this, DynamicIslandOverlayService::class.java).apply {
                     action = DynamicIslandOverlayService.ACTION_SHOW
                     putExtra(DynamicIslandOverlayService.EXTRA_TITLE, state.currentSong.title)
@@ -264,6 +295,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         try {
             startService(intent)
         } catch (ignored: Exception) {}
+    }
+
+    override fun onDestroy() {
+        try {
+            unregisterReceiver(shutdownReceiver)
+        } catch (ignored: Exception) {}
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

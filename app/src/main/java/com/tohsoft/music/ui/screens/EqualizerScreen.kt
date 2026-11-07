@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tohsoft.music.audio.EqualizerManager
@@ -261,7 +262,7 @@ fun EqualizerScreen(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            // TOP BAR
+            // TOP BAR: Back, Mode Title, Auto-EQ Chip, Switch
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -275,10 +276,14 @@ fun EqualizerScreen(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "ЭКВАЛАЙЗЕР PRO",
+                        text = when (selectedTab) {
+                            1 -> "ПАРАМЕТРИЧЕСКИЙ EQ"
+                            2 -> "СИСТЕМНЫЙ DSP"
+                            else -> "10-ПОЛОСНЫЙ EQ"
+                        },
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
+                        fontSize = 15.sp
                     )
                     Text(
                         text = "32-Bit Floating Point DSP",
@@ -328,9 +333,60 @@ fun EqualizerScreen(
                 }
             }
 
+            Spacer(Modifier.height(4.dp))
+
+            // TOP MODE SELECTOR TABS: [ 📊 10-Band ] [ 🎛️ Параметрический ] [ 🎚️ Системный DSP ]
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = ColorPowerampCard,
+                border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val tabs = listOf(
+                        Triple(0, "📊", "10-Band"),
+                        Triple(1, "🎛️", "Параметрический"),
+                        Triple(2, "🎚️", "Системный DSP")
+                    )
+                    tabs.forEach { (tabIdx, icon, label) ->
+                        val isTabSelected = selectedTab == tabIdx
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isTabSelected) ColorTurquoise else Color.Transparent,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    selectedTab = tabIdx
+                                    onToggleParametricMode(tabIdx == 1)
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(icon, fontSize = 12.sp)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = label,
+                                    color = if (isTabSelected) Color(0xFF040711) else ColorTextMuted,
+                                    fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(8.dp))
 
-            // MAIN EQ VIEW
+            // MAIN EQUALIZER INTERFACE: PREAMP + SLIDERS / PARAMETRIC CARDS / DSP
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -338,24 +394,41 @@ fun EqualizerScreen(
             ) {
                 when (selectedTab) {
                     0 -> {
-                        // TAB 0: 10-BAND GRAPHIC FADERS
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Row(
+                        // TAB 0: 10-BAND GRAPHIC EQ
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Left: Preamp Card
+                            Card(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .width(52.dp)
+                                    .fillMaxHeight(),
+                                colors = CardDefaults.cardColors(containerColor = ColorPowerampCard),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, Color(0x22FFFFFF))
                             ) {
-                                // Preamp
                                 Column(
-                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(vertical = 8.dp, horizontal = 2.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("0.0", color = ColorTextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("ПРЕАМП", color = ColorTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = (if (preampDb > 0) "+" else "") + String.format("%.1f", preampDb),
+                                            color = ColorNeonAmber,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
                                     Box(
-                                        modifier = Modifier.weight(1f).width(28.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .width(28.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Slider(
@@ -370,48 +443,70 @@ fun EqualizerScreen(
                                             )
                                         )
                                     }
-                                    Text("Преамп", color = ColorNeonAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+
+                                    Text("0.0 dB", color = ColorTextMuted, fontSize = 8.sp)
                                 }
+                            }
 
-                                // 10 Frequency Faders
-                                BAND_FREQS_LABEL.forEachIndexed { index, freqLabel ->
-                                    val bandVal = bands.getOrElse(index) { 0 }
-                                    Column(
-                                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = if (bandVal > 0) "+$bandVal" else "$bandVal",
-                                            color = if (bandVal != 0 && isEqEnabled) ColorNeonGreen else ColorTextMuted,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-
-                                        Box(
-                                            modifier = Modifier.weight(1f).width(28.dp),
-                                            contentAlignment = Alignment.Center
+                            // Center/Right: 10-Band Graphic Faders
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                colors = CardDefaults.cardColors(containerColor = ColorPowerampCard),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, Color(0x22FFFFFF))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 6.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    BAND_FREQS_LABEL.forEachIndexed { index, freqLabel ->
+                                        val bandVal = bands.getOrElse(index) { 0 }
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Slider(
-                                                value = bandVal.toFloat(),
-                                                onValueChange = { onBandChange(index, it.toInt()) },
-                                                valueRange = -15f..15f,
-                                                steps = 29,
-                                                enabled = isEqEnabled,
-                                                colors = SliderDefaults.colors(
-                                                    thumbColor = Color.White,
-                                                    activeTrackColor = ColorNeonGreen,
-                                                    inactiveTrackColor = Color(0x33FFFFFF)
+                                            Text(
+                                                text = if (bandVal > 0) "+$bandVal" else "$bandVal",
+                                                color = if (bandVal != 0 && isEqEnabled) ColorTurquoise else ColorTextMuted,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .width(24.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Slider(
+                                                    value = bandVal.toFloat(),
+                                                    onValueChange = { onBandChange(index, it.toInt()) },
+                                                    valueRange = -15f..15f,
+                                                    steps = 29,
+                                                    enabled = isEqEnabled,
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = Color.White,
+                                                        activeTrackColor = ColorTurquoise,
+                                                        inactiveTrackColor = Color(0x33FFFFFF)
+                                                    )
                                                 )
+                                            }
+
+                                            Text(
+                                                text = freqLabel,
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
-
-                                        Text(
-                                            text = freqLabel,
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
                                     }
                                 }
                             }
@@ -419,146 +514,186 @@ fun EqualizerScreen(
                     }
                     1 -> {
                         // TAB 1: PARAMETRIC STUDIO CARDS
-                        LazyRow(
+                        Row(
                             modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            item {
-                                Card(
-                                    modifier = Modifier.width(135.dp).fillMaxHeight(),
-                                    colors = CardDefaults.cardColors(containerColor = ColorPowerampCard),
-                                    shape = RoundedCornerShape(18.dp),
-                                    border = BorderStroke(1.dp, Color(0x33FFFFFF))
+                            // Left: Preamp Card
+                            Card(
+                                modifier = Modifier
+                                    .width(52.dp)
+                                    .fillMaxHeight(),
+                                colors = CardDefaults.cardColors(containerColor = ColorPowerampCard),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, Color(0x22FFFFFF))
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(vertical = 8.dp, horizontal = 2.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize().padding(10.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Преамп", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Box(
-                                            modifier = Modifier.weight(1f).width(36.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Slider(
-                                                value = preampDb,
-                                                onValueChange = { onPreampChange(it) },
-                                                valueRange = -12f..12f,
-                                                enabled = isEqEnabled,
-                                                colors = SliderDefaults.colors(
-                                                    thumbColor = Color.White,
-                                                    activeTrackColor = ColorNeonAmber,
-                                                    inactiveTrackColor = Color(0x33FFFFFF)
-                                                )
-                                            )
-                                        }
-                                        Text(String.format("%.1f dB", preampDb), color = ColorNeonAmber, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("ПРЕАМП", color = ColorTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = (if (preampDb > 0) "+" else "") + String.format("%.1f", preampDb),
+                                            color = ColorNeonAmber,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .width(28.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Slider(
+                                            value = preampDb,
+                                            onValueChange = { onPreampChange(it) },
+                                            valueRange = -12f..12f,
+                                            enabled = isEqEnabled,
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = Color.White,
+                                                activeTrackColor = ColorNeonAmber,
+                                                inactiveTrackColor = Color(0x33FFFFFF)
+                                            )
+                                        )
+                                    }
+
+                                    Text("0.0 dB", color = ColorTextMuted, fontSize = 8.sp)
                                 }
                             }
 
-                            itemsIndexed(BAND_FREQS) { index, freqHz ->
-                                val gain = bands.getOrElse(index) { 0 }
-                                val qVal = bandQValues.getOrElse(index) { 1.41f }
-                                val cardBg = BAND_COLORS.getOrElse(index) { ColorPowerampCard }
+                            // Center/Right: Parametric Cards Carousel
+                            LazyRow(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(BAND_FREQS) { index, freqHz ->
+                                    val gain = bands.getOrElse(index) { 0 }
+                                    val qVal = bandQValues.getOrElse(index) { 1.41f }
+                                    val cardBg = BAND_COLORS.getOrElse(index) { ColorPowerampCard }
 
-                                Card(
-                                    modifier = Modifier.width(190.dp).fillMaxHeight(),
-                                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                                    shape = RoundedCornerShape(20.dp),
-                                    border = BorderStroke(1.dp, Color(0x44FFFFFF))
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize().padding(10.dp),
-                                        verticalArrangement = Arrangement.SpaceBetween
+                                    Card(
+                                        modifier = Modifier
+                                            .width(155.dp)
+                                            .fillMaxHeight(),
+                                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                                        shape = RoundedCornerShape(16.dp),
+                                        border = BorderStroke(1.dp, Color(0x33FFFFFF))
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(8.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = Color(0x33000000)
+                                            // Header
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0x44000000)
+                                                ) {
+                                                    Text(
+                                                        text = "L+R",
+                                                        color = Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                val filterName = when (index) {
+                                                    0 -> "Low-Shelf"
+                                                    9 -> "High-Shelf"
+                                                    else -> "Peaking"
+                                                }
+                                                Text(filterName, color = Color.White.copy(alpha = 0.7f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            // Body: Slider on left + Rotary Knobs on right
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(36.dp)
+                                                        .fillMaxHeight(),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Slider(
+                                                        value = gain.toFloat(),
+                                                        onValueChange = { onBandChange(index, it.toInt()) },
+                                                        valueRange = -15f..15f,
+                                                        steps = 29,
+                                                        enabled = isEqEnabled,
+                                                        colors = SliderDefaults.colors(
+                                                            thumbColor = Color.White,
+                                                            activeTrackColor = ColorNeonGreen,
+                                                            inactiveTrackColor = Color(0x33FFFFFF)
+                                                        )
+                                                    )
+                                                }
+
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.SpaceEvenly,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .fillMaxHeight()
+                                                ) {
+                                                    PowerampRotaryDial(
+                                                        value = (qVal / 5f).coerceIn(0f, 1f),
+                                                        label = "Q",
+                                                        displayValue = String.format("%.2f", qVal),
+                                                        activeColor = ColorNeonCyan,
+                                                        sizeDp = 44,
+                                                        onValueChange = { frac ->
+                                                            bandQValues[index] = (frac * 5f).coerceIn(0.2f, 5.0f)
+                                                        }
+                                                    )
+
+                                                    PowerampRotaryDial(
+                                                        value = (index / 9f).coerceIn(0f, 1f),
+                                                        label = "Част.",
+                                                        displayValue = BAND_FREQS_LABEL[index],
+                                                        activeColor = ColorNeonLime,
+                                                        sizeDp = 44,
+                                                        onValueChange = {}
+                                                    )
+                                                }
+                                            }
+
+                                            // Footer Readout
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text(
-                                                    text = "L+R",
+                                                    text = "Усил. " + (if (gain > 0) "+$gain" else "$gain") + " dB",
                                                     color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = BAND_FREQS_LABEL[index] + " Hz",
+                                                    color = ColorTurquoise,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
                                                 )
                                             }
-                                            Text("∿", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().weight(1f),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                modifier = Modifier.width(42.dp).fillMaxHeight(),
-                                                verticalArrangement = Arrangement.Center
-                                            ) {
-                                                Slider(
-                                                    value = gain.toFloat(),
-                                                    onValueChange = { onBandChange(index, it.toInt()) },
-                                                    valueRange = -15f..15f,
-                                                    steps = 29,
-                                                    enabled = isEqEnabled,
-                                                    colors = SliderDefaults.colors(
-                                                        thumbColor = Color.White,
-                                                        activeTrackColor = ColorNeonGreen,
-                                                        inactiveTrackColor = Color(0x33FFFFFF)
-                                                    )
-                                                )
-                                            }
-
-                                            Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.SpaceEvenly,
-                                                modifier = Modifier.weight(1f).fillMaxHeight()
-                                            ) {
-                                                PowerampRotaryDial(
-                                                    value = (qVal / 5f).coerceIn(0f, 1f),
-                                                    label = "Q",
-                                                    displayValue = String.format("%.2f", qVal),
-                                                    activeColor = ColorNeonCyan,
-                                                    sizeDp = 52,
-                                                    onValueChange = { frac ->
-                                                        bandQValues[index] = (frac * 5f).coerceIn(0.2f, 5.0f)
-                                                    }
-                                                )
-
-                                                PowerampRotaryDial(
-                                                    value = (index / 9f).coerceIn(0f, 1f),
-                                                    label = "Част.",
-                                                    displayValue = BAND_FREQS_LABEL[index],
-                                                    activeColor = ColorNeonLime,
-                                                    sizeDp = 52,
-                                                    onValueChange = {}
-                                                )
-                                            }
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(
-                                                text = "Усил. " + (if (gain > 0) "+$gain" else "$gain"),
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = "Част. " + BAND_FREQS_LABEL[index],
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
                                         }
                                     }
                                 }
@@ -576,7 +711,9 @@ fun EqualizerScreen(
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF14203D)),
                                 shape = RoundedCornerShape(16.dp),
                                 border = BorderStroke(1.dp, ColorTurquoise.copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp)
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -606,7 +743,7 @@ fun EqualizerScreen(
                                 }
                             }
 
-                            Text("3D Звук (Virtualizer): " + virtualizer + "%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("3D Звук (Virtualizer): $virtualizer%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Slider(
                                 value = virtualizer.toFloat(),
                                 onValueChange = { onVirtualizerChange(it.toInt()) },
@@ -620,7 +757,9 @@ fun EqualizerScreen(
                             Text("Реверберация (Акустическое пространство)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             val reverbNames = listOf("Откл.", "Малая комната", "Средняя комната", "Большая комната", "Большой зал", "Пластина (Plate)")
                             Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 reverbNames.forEachIndexed { revIdx, name ->
@@ -643,7 +782,7 @@ fun EqualizerScreen(
 
                             Spacer(Modifier.height(12.dp))
 
-                            Text("Усиление громкости (Loudness Enhancer): " + loudness + " mB", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Усиление громкости (Loudness Enhancer): $loudness mB", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Slider(
                                 value = loudness.toFloat(),
                                 onValueChange = { onLoudnessChange(it.toInt()) },
@@ -656,59 +795,47 @@ fun EqualizerScreen(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-
-            // MIDDLE SECTION: LIVE SPLINE FREQUENCY RESPONSE
-            FrequencyResponseSpline(
-                bands = bands,
-                preampDb = preampDb,
-                activeColor = ColorNeonGreen
-            )
-
             Spacer(Modifier.height(6.dp))
 
-            // PRESET SELECTOR CAPSULE & DVC STATUS BADGE
-            Row(
+            // MIDDLE SECTION: LIVE SPLINE FREQUENCY RESPONSE (АЧХ)
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = ColorPowerampCard),
+                border = BorderStroke(1.dp, Color(0x22FFFFFF))
             ) {
-                Text(
-                    text = if (selectedTab == 1) "ⓘ DVC EQ-PARAM LMT" else "ⓘ DVC EQ-10 LMT",
-                    color = ColorTextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = ColorPowerampCard,
-                    border = BorderStroke(1.dp, Color(0x44FFFFFF)),
-                    modifier = Modifier.clickable { isPresetModalOpen = true }
-                ) {
+                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = activePreset,
-                            color = Color.White,
+                            text = "∿ АЧХ Реакции (Frequency Response Spline)",
+                            color = ColorTurquoise,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontSize = 10.sp
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text("▾", color = ColorTurquoise, fontSize = 12.sp)
+                        Text(
+                            text = if (selectedTab == 1) "DVC EQ-PARAM LMT • 32-BIT DSP" else "DVC EQ-10 LMT • 32-BIT DSP",
+                            color = ColorTextMuted,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
-                }
-
-                IconButton(onClick = onResetEq) {
-                    Text("↺", color = ColorTextMuted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    FrequencyResponseSpline(
+                        bands = bands,
+                        preampDb = preampDb,
+                        activeColor = ColorNeonGreen,
+                        modifier = Modifier.height(68.dp)
+                    )
                 }
             }
 
             Spacer(Modifier.height(6.dp))
 
-            // BOTTOM CONTROLS: [ Экв. ], [ Лимит ], Rotary Bass, Rotary Treble
+            // UNIFIED AUDIOPHILE BOTTOM ROW: [Экв.] [Лимит], [Пресет ▾], [Низк.] [Выс.], [↺]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -716,113 +843,137 @@ fun EqualizerScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Left Column: [Экв.] and [Лимит] buttons
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = if (isEqEnabled) Color(0x3300C996) else Color(0x22FFFFFF),
                         border = BorderStroke(1.dp, if (isEqEnabled) ColorTurquoise else Color(0x33FFFFFF)),
                         modifier = Modifier.clickable { onToggleEnabled(!isEqEnabled) }
                     ) {
-                        Text(
-                            text = "Экв.",
-                            color = if (isEqEnabled) ColorTurquoise else ColorTextMuted,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isEqEnabled) ColorTurquoise else ColorTextMuted)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "Экв.",
+                                color = if (isEqEnabled) ColorTurquoise else ColorTextMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
-                }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = if (isLimiterEnabled) Color(0x3310B981) else Color(0x22FFFFFF),
                         border = BorderStroke(1.dp, if (isLimiterEnabled) ColorNeonGreen else Color(0x33FFFFFF)),
                         modifier = Modifier.clickable { onToggleLimiter(!isLimiterEnabled) }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("|||", fontSize = 10.sp, color = ColorNeonGreen, fontWeight = FontWeight.Bold)
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLimiterEnabled) ColorNeonGreen else ColorTextMuted)
+                            )
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = "Лимит",
                                 color = if (isLimiterEnabled) ColorNeonGreen else ColorTextMuted,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 11.sp
                             )
                         }
                     }
                 }
 
-                PowerampRotaryDial(
-                    value = (bassBoost / 100f).coerceIn(0f, 1f),
-                    label = "Низк.",
-                    displayValue = "$bassBoost%",
-                    activeColor = ColorNeonGreen,
-                    sizeDp = 50,
-                    onValueChange = { frac ->
-                        onBassBoostChange((frac * 100).toInt())
+                // Center Column: Preset Dropdown Capsule & Reset
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                ) {
+                    Text(
+                        text = "ПРЕСЕТ",
+                        color = ColorTextMuted,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = ColorPowerampCard,
+                        border = BorderStroke(1.dp, Color(0x44FFFFFF)),
+                        modifier = Modifier.clickable { isPresetModalOpen = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = activePreset,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("▾", color = ColorTurquoise, fontSize = 11.sp)
+                        }
                     }
-                )
-
-                PowerampRotaryDial(
-                    value = (trebleLevel / 100f).coerceIn(0f, 1f),
-                    label = "Выс.",
-                    displayValue = "$trebleLevel%",
-                    activeColor = ColorNeonCyan,
-                    sizeDp = 50,
-                    onValueChange = { frac ->
-                        onTrebleChange((frac * 100).toInt())
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(currentSongGenre, color = ColorTurquoise, fontSize = 9.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "↺",
+                            color = ColorTextMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { onResetEq() }
+                        )
                     }
-                )
-            }
+                }
 
-            Spacer(Modifier.height(6.dp))
-
-            // BOTTOM 3-TAB SWITCHER BAR
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = ColorPowerampCard,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+                // Right: Two Rotary Knobs side-by-side
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = {
-                        selectedTab = 0
-                        onToggleParametricMode(false)
-                    }) {
-                        Text(
-                            text = "📊",
-                            fontSize = 20.sp,
-                            modifier = if (selectedTab == 0) Modifier.background(Color(0x3300C996), CircleShape).padding(4.dp) else Modifier
-                        )
-                    }
+                    PowerampRotaryDial(
+                        value = (bassBoost / 100f).coerceIn(0f, 1f),
+                        label = "Низк.",
+                        displayValue = "$bassBoost%",
+                        activeColor = ColorNeonGreen,
+                        sizeDp = 48,
+                        onValueChange = { frac ->
+                            onBassBoostChange((frac * 100).toInt())
+                        }
+                    )
 
-                    IconButton(onClick = {
-                        selectedTab = 1
-                        onToggleParametricMode(true)
-                    }) {
-                        Text(
-                            text = "🎛️",
-                            fontSize = 20.sp,
-                            modifier = if (selectedTab == 1) Modifier.background(Color(0x3300C996), CircleShape).padding(4.dp) else Modifier
-                        )
-                    }
-
-                    IconButton(onClick = {
-                        selectedTab = 2
-                    }) {
-                        Text(
-                            text = "🎚️",
-                            fontSize = 20.sp,
-                            modifier = if (selectedTab == 2) Modifier.background(Color(0x3300C996), CircleShape).padding(4.dp) else Modifier
-                        )
-                    }
+                    PowerampRotaryDial(
+                        value = (trebleLevel / 100f).coerceIn(0f, 1f),
+                        label = "Выс.",
+                        displayValue = "$trebleLevel%",
+                        activeColor = ColorNeonCyan,
+                        sizeDp = 48,
+                        onValueChange = { frac ->
+                            onTrebleChange((frac * 100).toInt())
+                        }
+                    )
                 }
             }
         }

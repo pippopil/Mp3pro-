@@ -41,6 +41,7 @@
         android:label="MP3 Player Pro"
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <!-- Интеграция с Android Auto (Automotive App Descriptor) -->

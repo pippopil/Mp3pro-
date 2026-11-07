@@ -988,13 +988,15 @@ fun FullPlayerScreen(
             .background(nebulaBrush)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Top Action Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1028,7 +1030,7 @@ fun FullPlayerScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.Center
         ) {
             CoverStyle.values().forEach { style ->
@@ -1058,14 +1060,15 @@ fun FullPlayerScreen(
             }
         }
 
-        Spacer(Modifier.weight(0.2f))
+        Spacer(Modifier.height(8.dp))
 
         // CENTER: INTERACTIVE COVER VIEW (Vinyl spin / 3D Glass / Neon / Poster) + Subwoofer Bass Boost
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 180.dp, max = 240.dp)
                 .aspectRatio(1f)
-                .padding(12.dp),
+                .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
             PlayerCoverView(
@@ -1079,7 +1082,7 @@ fun FullPlayerScreen(
             )
         }
 
-        Spacer(Modifier.weight(0.15f))
+        Spacer(Modifier.height(8.dp))
 
         // SAMSUNG DOLBY ATMOS & SOUND ENHANCEMENT ROW
         Row(
@@ -1563,7 +1566,7 @@ fun SettingsTabContent(
                 }
                 Pair(ver, code)
             } catch (e: Exception) {
-                Pair("1.0.0-beta17", 17L)
+                Pair("1.0.0-beta18", 18L)
             }
         }
         Column(

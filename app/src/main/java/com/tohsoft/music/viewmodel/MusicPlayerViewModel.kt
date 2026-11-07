@@ -124,6 +124,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val yandexRepository = YandexMusicRepository()
 
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application)
+        .setMediaSourceFactory(
+            androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+                androidx.media3.datasource.DefaultDataSource.Factory(
+                    application,
+                    androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                        .setUserAgent("MP3PlayerPro-Android/1.0.0")
+                        .setAllowCrossProtocolRedirects(true)
+                )
+            )
+        )
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -217,6 +227,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     } else {
                         nextSong()
                     }
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                error.printStackTrace()
+                _uiState.update {
+                    it.copy(
+                        isPlaying = false,
+                        statusToastMessage = "Ошибка воспроизведения аудио: " + (error.message ?: "формат не поддерживается")
+                    )
                 }
             }
         })
@@ -846,16 +866,20 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             val context = getApplication<Application>()
-            val downloadedUri = withContext(Dispatchers.IO) {
+            val downloadedFile = withContext(Dispatchers.IO) {
                 try {
-                    val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir
-                    val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(50) + ".m4a"
+                    val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+                        ?: File(context.filesDir, "Music").apply { mkdirs() }
+                    if (!musicDir.exists()) musicDir.mkdirs()
+
+                    val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(45) + ".m4a"
                     val destFile = File(musicDir, safeName)
 
                     val req = Request.Builder()
                         .url(audioUrl)
-                        .header("User-Agent", "MP3PlayerPro-Android/1.0.0")
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                         .build()
+
                     coverArtRepository.httpClient.newCall(req).execute().use { response ->
                         if (!response.isSuccessful) return@withContext null
                         val body = response.body ?: return@withContext null
@@ -863,7 +887,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         var totalRead = 0L
                         body.byteStream().use { input ->
                             FileOutputStream(destFile).use { output ->
-                                val buffer = ByteArray(8 * 1024)
+                                val buffer = ByteArray(16 * 1024)
                                 var read: Int
                                 while (input.read(buffer).also { read = it } != -1) {
                                     output.write(buffer, 0, read)
@@ -873,9 +897,24 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                                         _uiState.update { it.copy(onlineDownloadProgress = progress, onlineDownloadMessage = "Скачивание: " + progress + "%") }
                                     }
                                 }
+                                output.flush()
                             }
                         }
-                        Uri.fromFile(destFile)
+                        if (destFile.exists() && destFile.length() > 5000L) {
+                            // Сканируем файл в системном MediaScanner для надежного воспроизведения
+                            try {
+                                android.media.MediaScannerConnection.scanFile(
+                                    context,
+                                    arrayOf(destFile.absolutePath),
+                                    arrayOf("audio/mp4", "audio/m4a", "audio/mpeg"),
+                                    null
+                                )
+                            } catch (ignored: Exception) {}
+                            destFile
+                        } else {
+                            destFile.delete()
+                            null
+                        }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -883,7 +922,18 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            val finalUri = downloadedUri ?: Uri.parse(audioUrl)
+            if (downloadedFile == null) {
+                _uiState.update {
+                    it.copy(
+                        onlineDownloadProgress = 0,
+                        onlineDownloadMessage = "Не удалось загрузить аудио: источник не ответил или заблокирован",
+                        statusToastMessage = "Ошибка загрузки трека $title"
+                    )
+                }
+                return@launch
+            }
+
+            val finalUri = Uri.fromFile(downloadedFile)
             val newSong = Song(
                 id = System.currentTimeMillis(),
                 title = title,
@@ -905,6 +955,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     filteredSongs = sorted,
                     onlineDownloadProgress = 100,
                     onlineDownloadMessage = "Успешно скачан трек: $title!",
+                    statusToastMessage = "Трек $title сохранен и готов к воспроизведению",
                     isOnlineSearchOpen = false
                 )
             }
