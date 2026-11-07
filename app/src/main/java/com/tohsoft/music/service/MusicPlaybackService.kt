@@ -95,7 +95,6 @@ class MusicPlaybackService : Service() {
             .setOngoing(isPlaying) // Если на паузе — можно сразу смахнуть вправо
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setStyle(androidx.media.app.NotificationCompat.MediaStyle().setShowActionsInCompactView(0))
             .build()
 
         startForeground(NOTIFICATION_ID, notification)
