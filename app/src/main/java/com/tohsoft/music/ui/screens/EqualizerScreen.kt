@@ -2,6 +2,8 @@ package com.tohsoft.music.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -52,12 +54,124 @@ private val BAND_FREQS = listOf(31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 1
 private val BAND_FREQS_LABEL = listOf("31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K")
 
 @Composable
+fun VerticalFader(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    activeColor: Color = ColorTurquoise,
+    enabled: Boolean = true,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val h = size.height.toFloat()
+                    val thumbH = 16.dp.toPx()
+                    val usableH = (h - thumbH).coerceAtLeast(1f)
+
+                    fun updateFromY(y: Float) {
+                        val clampedY = (y - thumbH / 2f).coerceIn(0f, usableH)
+                        val frac = 1f - (clampedY / usableH)
+                        val newVal = range.start + frac * (range.endInclusive - range.start)
+                        onValueChange(newVal)
+                    }
+
+                    updateFromY(down.position.y)
+                    down.consume()
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        change.consume()
+                        updateFromY(change.position.y)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 2.dp)) {
+            val w = size.width
+            val h = size.height
+            val centerX = w / 2f
+            val thumbWidth = 24.dp.toPx()
+            val thumbHeight = 14.dp.toPx()
+            val usableH = (h - thumbHeight).coerceAtLeast(1f)
+
+            val frac = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+            val thumbY = (1f - frac) * usableH + (thumbHeight / 2f)
+            val midY = h / 2f
+
+            // 1. Background vertical slot/track
+            val trackWidth = 3.dp.toPx()
+            drawLine(
+                color = Color(0x33FFFFFF),
+                start = Offset(centerX, thumbHeight / 2f),
+                end = Offset(centerX, h - thumbHeight / 2f),
+                strokeWidth = trackWidth,
+                cap = StrokeCap.Round
+            )
+
+            // 2. Active colored track from center (0 dB / mid) to thumb
+            if (enabled) {
+                drawLine(
+                    color = activeColor,
+                    start = Offset(centerX, midY),
+                    end = Offset(centerX, thumbY),
+                    strokeWidth = trackWidth + 1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // 3. Center 0dB horizontal tick notch
+            drawLine(
+                color = Color(0x66FFFFFF),
+                start = Offset(centerX - 6.dp.toPx(), midY),
+                end = Offset(centerX + 6.dp.toPx(), midY),
+                strokeWidth = 1.5.dp.toPx()
+            )
+
+            // 4. Fader Thumb Handle
+            val thumbLeft = centerX - (thumbWidth / 2f)
+            val thumbTop = thumbY - (thumbHeight / 2f)
+
+            // Thumb body
+            drawRoundRect(
+                color = if (enabled) Color(0xFF1E2433) else Color(0xFF121620),
+                topLeft = Offset(thumbLeft, thumbTop),
+                size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+            )
+            // Thumb border
+            drawRoundRect(
+                color = if (enabled) activeColor.copy(alpha = 0.9f) else Color(0x44FFFFFF),
+                topLeft = Offset(thumbLeft, thumbTop),
+                size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+            // Center horizontal ridge on thumb
+            drawLine(
+                color = if (enabled) activeColor else Color.White,
+                start = Offset(thumbLeft + 4.dp.toPx(), thumbY),
+                end = Offset(thumbLeft + thumbWidth - 4.dp.toPx(), thumbY),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
+@Composable
 fun PowerampRotaryDial(
     value: Float,
     label: String,
     displayValue: String,
     activeColor: Color = ColorNeonLime,
-    sizeDp: Int = 60,
+    sizeDp: Int = 54,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -76,11 +190,34 @@ fun PowerampRotaryDial(
             modifier = Modifier
                 .size(sizeDp.dp)
                 .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        val delta = -dragAmount.y / 200f
-                        val newVal = (value + delta).coerceIn(0f, 1f)
-                        onValueChange(newVal)
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var dragDistance = 0f
+                        var lastPos = down.position
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
+                                // Tap detection: if barely moved, cycle +20%
+                                if (dragDistance < 10f) {
+                                    val next = if (value >= 0.95f) 0f else (value + 0.20f).coerceIn(0f, 1f)
+                                    onValueChange(next)
+                                }
+                                break
+                            }
+                            val currentPos = change.position
+                            val deltaY = -(currentPos.y - lastPos.y) / 70f
+                            val deltaX = (currentPos.x - lastPos.x) / 70f
+                            val delta = if (abs(deltaY) > abs(deltaX)) deltaY else deltaX
+                            dragDistance += abs(currentPos.y - lastPos.y) + abs(currentPos.x - lastPos.x)
+                            if (dragDistance > 6f) {
+                                change.consume()
+                                val newVal = (value + delta).coerceIn(0f, 1f)
+                                onValueChange(newVal)
+                            }
+                            lastPos = currentPos
+                        }
                     }
                 },
             contentAlignment = Alignment.Center
@@ -108,9 +245,15 @@ fun PowerampRotaryDial(
                 )
 
                 drawCircle(
-                    color = Color(0xFF1E2433),
-                    radius = radius * 0.75f,
+                    color = Color(0xFF161B26),
+                    radius = radius * 0.76f,
                     center = center
+                )
+                drawCircle(
+                    color = Color(0x33FFFFFF),
+                    radius = radius * 0.76f,
+                    center = center,
+                    style = Stroke(width = 1.dp.toPx())
                 )
 
                 val angleRad = Math.toRadians((135f + sweep).toDouble())
@@ -119,17 +262,41 @@ fun PowerampRotaryDial(
                 val dotY = center.y + (dotRadius * sin(angleRad)).toFloat()
                 drawCircle(
                     color = Color.White,
-                    radius = 3.dp.toPx(),
+                    radius = 3.5.dp.toPx(),
                     center = Offset(dotX, dotY)
                 )
             }
         }
-        Text(
-            text = displayValue,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 10.sp
-        )
+        Spacer(Modifier.height(2.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "−",
+                color = ColorTextMuted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clickable { onValueChange((value - 0.1f).coerceIn(0f, 1f)) }
+                    .padding(horizontal = 4.dp)
+            )
+            Text(
+                text = displayValue,
+                color = activeColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp
+            )
+            Text(
+                text = "+",
+                color = ColorTextMuted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clickable { onValueChange((value + 0.1f).coerceIn(0f, 1f)) }
+                    .padding(horizontal = 4.dp)
+            )
+        }
     }
 }
 
@@ -425,24 +592,16 @@ fun EqualizerScreen(
                                         )
                                     }
 
-                                    Box(
+                                    VerticalFader(
+                                        value = preampDb,
+                                        range = -12f..12f,
+                                        activeColor = ColorNeonAmber,
+                                        enabled = isEqEnabled,
+                                        onValueChange = { onPreampChange(it) },
                                         modifier = Modifier
                                             .weight(1f)
-                                            .width(28.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Slider(
-                                            value = preampDb,
-                                            onValueChange = { onPreampChange(it) },
-                                            valueRange = -12f..12f,
-                                            enabled = isEqEnabled,
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = Color.White,
-                                                activeTrackColor = ColorNeonAmber,
-                                                inactiveTrackColor = Color(0x33FFFFFF)
-                                            )
-                                        )
-                                    }
+                                            .fillMaxWidth()
+                                    )
 
                                     Text("0.0 dB", color = ColorTextMuted, fontSize = 8.sp)
                                 }
@@ -474,31 +633,22 @@ fun EqualizerScreen(
                                             verticalArrangement = Arrangement.SpaceBetween
                                         ) {
                                             Text(
-                                                text = if (bandVal > 0) "+$bandVal" else "$bandVal",
+                                                text = (if (bandVal > 0) "+" else "") + "$bandVal",
                                                 color = if (bandVal != 0 && isEqEnabled) ColorTurquoise else ColorTextMuted,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
 
-                                            Box(
+                                            VerticalFader(
+                                                value = bandVal.toFloat(),
+                                                range = -15f..15f,
+                                                activeColor = ColorTurquoise,
+                                                enabled = isEqEnabled,
+                                                onValueChange = { onBandChange(index, it.roundToInt()) },
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .width(24.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Slider(
-                                                    value = bandVal.toFloat(),
-                                                    onValueChange = { onBandChange(index, it.toInt()) },
-                                                    valueRange = -15f..15f,
-                                                    steps = 29,
-                                                    enabled = isEqEnabled,
-                                                    colors = SliderDefaults.colors(
-                                                        thumbColor = Color.White,
-                                                        activeTrackColor = ColorTurquoise,
-                                                        inactiveTrackColor = Color(0x33FFFFFF)
-                                                    )
-                                                )
-                                            }
+                                                    .fillMaxWidth()
+                                            )
 
                                             Text(
                                                 text = freqLabel,
@@ -544,24 +694,16 @@ fun EqualizerScreen(
                                         )
                                     }
 
-                                    Box(
+                                    VerticalFader(
+                                        value = preampDb,
+                                        range = -12f..12f,
+                                        activeColor = ColorNeonAmber,
+                                        enabled = isEqEnabled,
+                                        onValueChange = { onPreampChange(it) },
                                         modifier = Modifier
                                             .weight(1f)
-                                            .width(28.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Slider(
-                                            value = preampDb,
-                                            onValueChange = { onPreampChange(it) },
-                                            valueRange = -12f..12f,
-                                            enabled = isEqEnabled,
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = Color.White,
-                                                activeTrackColor = ColorNeonAmber,
-                                                inactiveTrackColor = Color(0x33FFFFFF)
-                                            )
-                                        )
-                                    }
+                                            .fillMaxWidth()
+                                    )
 
                                     Text("0.0 dB", color = ColorTextMuted, fontSize = 8.sp)
                                 }
@@ -627,25 +769,16 @@ fun EqualizerScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Box(
+                                                VerticalFader(
+                                                    value = gain.toFloat(),
+                                                    range = -15f..15f,
+                                                    activeColor = ColorNeonGreen,
+                                                    enabled = isEqEnabled,
+                                                    onValueChange = { onBandChange(index, it.roundToInt()) },
                                                     modifier = Modifier
                                                         .width(36.dp)
-                                                        .fillMaxHeight(),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Slider(
-                                                        value = gain.toFloat(),
-                                                        onValueChange = { onBandChange(index, it.toInt()) },
-                                                        valueRange = -15f..15f,
-                                                        steps = 29,
-                                                        enabled = isEqEnabled,
-                                                        colors = SliderDefaults.colors(
-                                                            thumbColor = Color.White,
-                                                            activeTrackColor = ColorNeonGreen,
-                                                            inactiveTrackColor = Color(0x33FFFFFF)
-                                                        )
-                                                    )
-                                                }
+                                                        .fillMaxHeight()
+                                                )
 
                                                 Column(
                                                     horizontalAlignment = Alignment.CenterHorizontally,

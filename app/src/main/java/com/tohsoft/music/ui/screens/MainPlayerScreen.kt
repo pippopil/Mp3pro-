@@ -1566,7 +1566,7 @@ fun SettingsTabContent(
                 }
                 Pair(ver, code)
             } catch (e: Exception) {
-                Pair("1.0.0-beta18", 18L)
+                Pair("1.0.0-beta19", 19L)
             }
         }
         Column(
