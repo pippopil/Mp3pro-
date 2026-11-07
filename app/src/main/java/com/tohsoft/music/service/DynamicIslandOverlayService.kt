@@ -76,6 +76,12 @@ class DynamicIslandOverlayService : Service() {
         val density = resources.displayMetrics.density
         fun dp(v: Float) = (v * density).toInt()
 
+        val islandPrefs = getSharedPreferences("mp3_player_pro_island_prefs", Context.MODE_PRIVATE)
+        val defaultX = dp(52f) // Смещаем вправо по умолчанию, чтобы не перекрывать центральную селфи-камеру
+        val defaultY = dp(8f)
+        val savedX = islandPrefs.getInt("island_x", defaultX)
+        val savedY = islandPrefs.getInt("island_y", defaultY)
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -86,8 +92,8 @@ class DynamicIslandOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            x = dp(52f) // Смещаем вправо, чтобы центральная селфи-камера не перекрывала лягушонка
-            y = dp(8f)
+            x = savedX
+            y = savedY
         }
 
         val rootLayout = FrameLayout(this).apply {
@@ -114,7 +120,7 @@ class DynamicIslandOverlayService : Service() {
                 context.startActivity(launchIntent)
             }
 
-            // Возможность перетаскивания островка по экрану
+            // Возможность перетаскивания островка по экрану с сохранением позиции
             var initialX = 0
             var initialY = 0
             var initialTouchX = 0f
@@ -145,7 +151,14 @@ class DynamicIslandOverlayService : Service() {
                         } else false
                     }
                     android.view.MotionEvent.ACTION_UP -> {
-                        if (isDragging) true else {
+                        if (isDragging) {
+                            // Сохраняем положение островка в SharedPreferences, чтобы оно никогда не сбрасывалось
+                            islandPrefs.edit()
+                                .putInt("island_x", params.x)
+                                .putInt("island_y", params.y)
+                                .apply()
+                            true
+                        } else {
                             v.performClick()
                             false
                         }

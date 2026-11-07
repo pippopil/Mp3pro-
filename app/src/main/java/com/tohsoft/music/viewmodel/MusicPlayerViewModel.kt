@@ -872,22 +872,38 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         ?: File(context.filesDir, "Music").apply { mkdirs() }
                     if (!musicDir.exists()) musicDir.mkdirs()
 
-                    val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(45) + ".m4a"
+                    val ext = when {
+                        audioUrl.contains(".mp3", ignoreCase = true) -> ".mp3"
+                        audioUrl.contains(".ogg", ignoreCase = true) -> ".ogg"
+                        audioUrl.contains(".wav", ignoreCase = true) -> ".wav"
+                        audioUrl.contains(".aac", ignoreCase = true) -> ".aac"
+                        else -> ".m4a"
+                    }
+                    val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(45) + ext
                     val destFile = File(musicDir, safeName)
+
+                    val downloadClient = coverArtRepository.httpClient.newBuilder()
+                        .followRedirects(true)
+                        .followSslRedirects(true)
+                        .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
 
                     val req = Request.Builder()
                         .url(audioUrl)
-                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                        .header("Accept", "*/*")
+                        .header("Connection", "keep-alive")
                         .build()
 
-                    coverArtRepository.httpClient.newCall(req).execute().use { response ->
+                    downloadClient.newCall(req).execute().use { response ->
                         if (!response.isSuccessful) return@withContext null
                         val body = response.body ?: return@withContext null
                         val contentLength = body.contentLength()
                         var totalRead = 0L
                         body.byteStream().use { input ->
                             FileOutputStream(destFile).use { output ->
-                                val buffer = ByteArray(16 * 1024)
+                                val buffer = ByteArray(32 * 1024)
                                 var read: Int
                                 while (input.read(buffer).also { read = it } != -1) {
                                     output.write(buffer, 0, read)
@@ -900,13 +916,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                                 output.flush()
                             }
                         }
-                        if (destFile.exists() && destFile.length() > 5000L) {
-                            // Сканируем файл в системном MediaScanner для надежного воспроизведения
+                        if (destFile.exists() && destFile.length() > 2000L) {
                             try {
                                 android.media.MediaScannerConnection.scanFile(
                                     context,
                                     arrayOf(destFile.absolutePath),
-                                    arrayOf("audio/mp4", "audio/m4a", "audio/mpeg"),
+                                    arrayOf("audio/mp4", "audio/m4a", "audio/mpeg", "audio/ogg"),
                                     null
                                 )
                             } catch (ignored: Exception) {}

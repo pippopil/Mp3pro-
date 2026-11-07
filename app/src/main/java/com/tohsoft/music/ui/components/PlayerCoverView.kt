@@ -80,7 +80,7 @@ fun PlayerCoverView(
     ) {
         Box(
             modifier = Modifier
-                .size(260.dp)
+                .size(190.dp)
                 .graphicsLayer(scaleX = bassScale, scaleY = bassScale),
             contentAlignment = Alignment.Center
         ) {
@@ -106,29 +106,29 @@ fun PlayerCoverView(
                                 )
                             )
                             .border(
-                                width = if (bassBoostGain > 40) 5.dp else 4.dp,
+                                width = if (bassBoostGain > 40) 4.dp else 3.dp,
                                 color = if (bassBoostGain > 40) Color(0xFF06B6D4) else Color(0xFF334155),
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         // Концентрические канавки винила
-                        Box(modifier = Modifier.size(232.dp).border(1.dp, Color(0x3364748B), CircleShape))
-                        Box(modifier = Modifier.size(208.dp).border(1.dp, Color(0x2264748B), CircleShape))
-                        Box(modifier = Modifier.size(184.dp).border(1.dp, Color(0x3364748B), CircleShape))
-                        Box(modifier = Modifier.size(160.dp).border(1.dp, Color(0x2264748B), CircleShape))
+                        Box(modifier = Modifier.size(168.dp).border(1.dp, Color(0x3364748B), CircleShape))
+                        Box(modifier = Modifier.size(148.dp).border(1.dp, Color(0x2264748B), CircleShape))
+                        Box(modifier = Modifier.size(128.dp).border(1.dp, Color(0x3364748B), CircleShape))
+                        Box(modifier = Modifier.size(108.dp).border(1.dp, Color(0x2264748B), CircleShape))
 
                         // Центральный вращающийся лейбл с обложкой
                         Box(
                             modifier = Modifier
-                                .size(125.dp)
+                                .size(90.dp)
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(
                                         listOf(Color(0xFF06B6D4), Color(0xFF4F46E5))
                                     )
                                 )
-                                .border(2.dp, Color.White.copy(alpha = 0.4f), CircleShape),
+                                .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             if (coverModel != null && coverModel.toString().isNotBlank()) {
@@ -142,7 +142,7 @@ fun PlayerCoverView(
                                 Text(
                                     text = "♫",
                                     color = Color.White,
-                                    fontSize = 42.sp,
+                                    fontSize = 32.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -151,10 +151,10 @@ fun PlayerCoverView(
                         // Центральное отверстие шпинделя
                         Box(
                             modifier = Modifier
-                                .size(18.dp)
+                                .size(14.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF020617))
-                                .border(2.dp, Color(0xFFE2E8F0), CircleShape)
+                                .border(1.5.dp, Color(0xFFE2E8F0), CircleShape)
                         )
                     }
 
@@ -162,16 +162,16 @@ fun PlayerCoverView(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .offset(x = (-4).dp, y = 6.dp)
-                            .size(width = 8.dp, height = 48.dp)
+                            .offset(x = (-2).dp, y = 4.dp)
+                            .size(width = 6.dp, height = 36.dp)
                             .rotate(if (isPlaying) 26f else 10f)
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(3.dp))
                             .background(
                                 Brush.verticalGradient(
                                     listOf(Color(0xFFE2E8F0), Color(0xFF64748B))
                                 )
                             )
-                            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
                     )
                 }
 
@@ -179,9 +179,9 @@ fun PlayerCoverView(
                     // 3D Карточка со стеклянной фаской и тенями
                     Card(
                         modifier = Modifier
-                            .size(240.dp)
-                            .shadow(24.dp, RoundedCornerShape(24.dp), spotColor = Color(0xFF06B6D4)),
-                        shape = RoundedCornerShape(24.dp),
+                            .size(180.dp)
+                            .shadow(16.dp, RoundedCornerShape(20.dp), spotColor = Color(0xFF06B6D4)),
+                        shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
                     ) {
                         Box(
@@ -198,7 +198,7 @@ fun PlayerCoverView(
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
-                                Text("♫", color = Color(0xFF06B6D4), fontSize = 64.sp)
+                                Text("♫", color = Color(0xFF06B6D4), fontSize = 48.sp)
                             }
 
                             // Стеклянный блик
@@ -213,7 +213,7 @@ fun PlayerCoverView(
                                             )
                                         )
                                     )
-                                    .border(1.5.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                                    .border(1.5.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                             )
                         }
                     }
@@ -226,16 +226,16 @@ fun PlayerCoverView(
                             model = coverModel,
                             contentDescription = null,
                             modifier = Modifier
-                                .size(260.dp)
-                                .blur(32.dp)
+                                .size(190.dp)
+                                .blur(24.dp)
                                 .clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
                     } else {
                         Box(
                             modifier = Modifier
-                                .size(240.dp)
-                                .blur(28.dp)
+                                .size(180.dp)
+                                .blur(22.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF06B6D4).copy(alpha = 0.45f))
                         )
@@ -243,10 +243,10 @@ fun PlayerCoverView(
 
                     Box(
                         modifier = Modifier
-                            .size(220.dp)
-                            .clip(RoundedCornerShape(20.dp))
+                            .size(170.dp)
+                            .clip(RoundedCornerShape(18.dp))
                             .background(Color(0xFF0C142B))
-                            .border(2.5.dp, Color(0xFF22D3EE), RoundedCornerShape(20.dp)),
+                            .border(2.dp, Color(0xFF22D3EE), RoundedCornerShape(18.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (coverModel != null && coverModel.toString().isNotBlank()) {
@@ -257,7 +257,7 @@ fun PlayerCoverView(
                                 contentScale = ContentScale.Crop
                             )
                         } else {
-                            Text("♫", color = Color(0xFF22D3EE), fontSize = 60.sp)
+                            Text("♫", color = Color(0xFF22D3EE), fontSize = 48.sp)
                         }
                     }
                 }
@@ -266,12 +266,12 @@ fun PlayerCoverView(
                     // Полноэкранный стиль
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(20.dp))
+                            .size(180.dp)
+                            .clip(RoundedCornerShape(18.dp))
                             .background(
                                 Brush.linearGradient(listOf(Color(0xFF1E293B), Color(0xFF0F172A)))
                             )
-                            .shadow(16.dp),
+                            .shadow(12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         if (coverModel != null && coverModel.toString().isNotBlank()) {
@@ -282,45 +282,45 @@ fun PlayerCoverView(
                                 contentScale = ContentScale.Crop
                             )
                         } else {
-                            Text("♫", color = Color.White, fontSize = 72.sp)
+                            Text("♫", color = Color.White, fontSize = 54.sp)
                         }
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
 
         // Интерактивный регулятор Bass Boost прямо под обложкой с трансляцией в AudioSession
         if (onBassBoostChange != null) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(Color(0x2206B6D4))
-                    .border(1.dp, Color(0x4406B6D4), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .border(1.dp, Color(0x4406B6D4), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = "🔊 БАС: $bassBoostGain%",
                     color = Color(0xFF22D3EE),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 if (audioSessionId > 0) {
                     Text(
-                        text = "• Session #$audioSessionId",
+                        text = "• #$audioSessionId",
                         color = Color(0xFF8EA0BE),
-                        fontSize = 10.sp
+                        fontSize = 9.sp
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(20.dp)
                             .clip(CircleShape)
                             .background(Color(0x33FFFFFF))
                             .clickable {
@@ -329,12 +329,12 @@ fun PlayerCoverView(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("-", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("-", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(20.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00C996))
                             .clickable {
@@ -343,7 +343,7 @@ fun PlayerCoverView(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("+", color = Color(0xFF090D1E), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("+", color = Color(0xFF090D1E), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

@@ -988,40 +988,48 @@ fun FullPlayerScreen(
             .background(nebulaBrush)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         // Top Action Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(top = 2.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = onClose) {
-                Text("←", color = Color.White, fontSize = 24.sp)
+            IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
+                Text("←", color = Color.White, fontSize = 22.sp)
             }
 
-            // Page indicator dots
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(ColorTextMuted))
-                Box(Modifier.size(8.dp).clip(CircleShape).background(ColorTurquoise))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "СЕЙЧАС ИГРАЕТ",
+                    color = ColorTurquoise,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = song.album,
+                    color = ColorTextMuted,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             Row {
-                IconButton(onClick = onOpenEqualizer) {
-                    Text("🎚", color = ColorTurquoise, fontSize = 20.sp)
+                IconButton(onClick = onOpenEqualizer, modifier = Modifier.size(36.dp)) {
+                    Text("🎚", color = ColorTurquoise, fontSize = 18.sp)
                 }
-                IconButton(onClick = onCycleCoverStyle) {
-                    Text("🎨", color = ColorTurquoise, fontSize = 20.sp)
+                IconButton(onClick = onCycleCoverStyle, modifier = Modifier.size(36.dp)) {
+                    Text("🎨", color = ColorTurquoise, fontSize = 18.sp)
                 }
-                IconButton(onClick = onSleepTimerClick) {
-                    Text("⏱", color = ColorTextMuted, fontSize = 20.sp)
-                }
-                IconButton(onClick = onMenuClick) {
-                    Text("⋮", color = Color.White, fontSize = 22.sp)
+                IconButton(onClick = onMenuClick, modifier = Modifier.size(36.dp)) {
+                    Text("⋮", color = Color.White, fontSize = 20.sp)
                 }
             }
         }
@@ -1036,39 +1044,35 @@ fun FullPlayerScreen(
             CoverStyle.values().forEach { style ->
                 val isSelected = (style == coverStyle)
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = if (isSelected) ColorTurquoise else Color(0x22FFFFFF),
                     border = BorderStroke(1.dp, if (isSelected) ColorTurquoise else Color(0x33FFFFFF)),
                     modifier = Modifier
-                        .padding(horizontal = 4.dp)
+                        .padding(horizontal = 3.dp)
                         .clickable { onSetCoverStyle(style) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(style.icon, fontSize = 13.sp)
-                        Spacer(Modifier.width(4.dp))
+                        Text(style.icon, fontSize = 11.sp)
+                        Spacer(Modifier.width(3.dp))
                         Text(
                             text = style.title,
                             color = if (isSelected) Color(0xFF040711) else Color.White,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 11.sp
+                            fontSize = 10.sp
                         )
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-
         // CENTER: INTERACTIVE COVER VIEW (Vinyl spin / 3D Glass / Neon / Poster) + Subwoofer Bass Boost
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 180.dp, max = 240.dp)
-                .aspectRatio(1f)
-                .padding(4.dp),
+                .weight(1f, fill = false)
+                .padding(vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
             PlayerCoverView(
@@ -1077,75 +1081,72 @@ fun FullPlayerScreen(
                 style = coverStyle,
                 bassBoostGain = bassBoostGain,
                 audioSessionId = audioSessionId,
-                onBassBoostChange = onBassBoostChange,
-                modifier = Modifier.fillMaxSize()
+                onBassBoostChange = onBassBoostChange
             )
         }
-
-        Spacer(Modifier.height(8.dp))
 
         // SAMSUNG DOLBY ATMOS & SOUND ENHANCEMENT ROW
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Dolby Atmos Badge
             Surface(
                 color = Color(0xFF101B38),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, ColorTurquoise.copy(alpha = 0.5f)),
                 modifier = Modifier.clickable { onOpenEqualizer() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("DOLBY ATMOS", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("•", color = ColorTextMuted, fontSize = 10.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Hi-Res 24-bit 96kHz", color = Color.White, fontSize = 10.sp)
+                    Text("DOLBY ATMOS", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("•", color = ColorTextMuted, fontSize = 9.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Hi-Res 24-bit 96kHz", color = Color.White, fontSize = 9.sp)
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
 
             // Dynamic Island Camera Pill with Frog Mascot
             Surface(
                 color = Color(0xFF142B1E),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, Color(0xFF22C55E)),
                 modifier = Modifier.clickable { onRequestOverlayPermission() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("🐸", fontSize = 11.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Островок", color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("🐸", fontSize = 10.sp)
+                    Spacer(Modifier.width(3.dp))
+                    Text("Островок", color = Color(0xFF22C55E), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
 
             // Online HD Cover Search Button
             Surface(
                 color = Color(0xFF132247),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, Color(0x444A689B)),
                 modifier = Modifier.clickable { onSearchCover() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (isSearchingCover) "⏳" else "🔍", fontSize = 11.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Text("HD Обложка", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                    Text(if (isSearchingCover) "⏳" else "🔍", fontSize = 10.sp)
+                    Spacer(Modifier.width(3.dp))
+                    Text("HD Обложка", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -1155,123 +1156,152 @@ fun FullPlayerScreen(
             Text(
                 text = coverSearchMessage,
                 color = ColorTurquoise,
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
             )
         }
 
-        Spacer(Modifier.height(8.dp))
-
         // SONG TITLE & ARTIST
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = song.title,
                 color = ColorTurquoise,
                 fontWeight = FontWeight.Bold,
-                fontSize = 19.sp,
+                fontSize = 17.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(1.dp))
             Text(
                 text = song.artist,
                 color = Color.White,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "${song.album} • ${song.bitrate}",
-                color = ColorTextMuted,
-                fontSize = 11.sp,
+                fontSize = 13.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
-
-        Spacer(Modifier.height(14.dp))
 
         // PROGRESS SEEKBAR
-        val posFormatted = formatMs(currentPositionMs)
-        val durFormatted = formatMs(durationMs)
-        val progress = if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
-
-        Slider(
-            value = progress,
-            onValueChange = { frac ->
-                val newPos = (frac * durationMs).toLong()
-                onSeekTo(newPos)
-            },
-            colors = SliderDefaults.colors(
-                thumbColor = ColorTurquoise,
-                activeTrackColor = ColorTurquoise,
-                inactiveTrackColor = Color(0x33FFFFFF)
-            )
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
         ) {
-            Text(posFormatted, color = ColorTextMuted, fontSize = 12.sp)
-            Text(durFormatted, color = ColorTextMuted, fontSize = 12.sp)
-        }
+            val posFormatted = formatMs(currentPositionMs)
+            val durFormatted = formatMs(durationMs)
+            val progress = if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
 
-        Spacer(Modifier.height(12.dp))
+            Slider(
+                value = progress,
+                onValueChange = { frac ->
+                    val newPos = (frac * durationMs).toLong()
+                    onSeekTo(newPos)
+                },
+                modifier = Modifier.fillMaxWidth().height(24.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = ColorTurquoise,
+                    activeTrackColor = ColorTurquoise,
+                    inactiveTrackColor = Color(0x33FFFFFF)
+                )
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(posFormatted, color = ColorTextMuted, fontSize = 11.sp)
+                Text(durFormatted, color = ColorTextMuted, fontSize = 11.sp)
+            }
+        }
 
         // PLAYBACK CONTROLS ROW
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { /* Favorite */ }) {
-                Text("♡", color = ColorTextMuted, fontSize = 22.sp)
+            IconButton(onClick = onToggleShuffle, modifier = Modifier.size(40.dp)) {
+                Text("🔀", color = if (isShuffle) ColorTurquoise else ColorTextMuted, fontSize = 18.sp)
             }
-            IconButton(onClick = onToggleShuffle) {
-                Text("🔀", color = if (isShuffle) ColorTurquoise else ColorTextMuted, fontSize = 20.sp)
-            }
-            IconButton(onClick = onPrev) {
-                Text("⏮", color = Color.White, fontSize = 24.sp)
+            IconButton(onClick = onPrev, modifier = Modifier.size(44.dp)) {
+                Text("⏮", color = Color.White, fontSize = 22.sp)
             }
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(54.dp)
                     .clip(CircleShape)
-                    .background(ColorTurquoise)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF22D3EE), Color(0xFF10B981))
+                        )
+                    )
                     .clickable(onClick = onTogglePlayPause),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = if (isPlaying) "⏸" else "▶",
                     color = Color(0xFF070B18),
-                    fontSize = 26.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
-            IconButton(onClick = onNext) {
-                Text("⏭", color = Color.White, fontSize = 24.sp)
+            IconButton(onClick = onNext, modifier = Modifier.size(44.dp)) {
+                Text("⏭", color = Color.White, fontSize = 22.sp)
             }
-            IconButton(onClick = onToggleRepeat) {
+            IconButton(onClick = onToggleRepeat, modifier = Modifier.size(40.dp)) {
                 val repIcon = when (repeatMode) {
                     RepeatMode.ONE -> "🔂"
                     RepeatMode.ALL -> "🔁"
                     RepeatMode.NONE -> "↩"
                 }
-                Text(repIcon, color = if (repeatMode != RepeatMode.NONE) ColorTurquoise else ColorTextMuted, fontSize = 20.sp)
+                Text(repIcon, color = if (repeatMode != RepeatMode.NONE) ColorTurquoise else ColorTextMuted, fontSize = 18.sp)
             }
-            IconButton(onClick = onCycleCoverStyle) {
-                Text(coverStyle.icon, fontSize = 20.sp)
+        }
+
+        // BOTTOM QUICK NAVIGATION (Превью-стиль: Библиотека, Эквалайзер, Таймер, Свернуть)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp, bottom = 2.dp)
+                .border(BorderStroke(0.5.dp, Color(0x33334155)), RoundedCornerShape(12.dp))
+                .background(Color(0x550B1226), RoundedCornerShape(12.dp))
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onClose() }
+            ) {
+                Text("🎵", fontSize = 14.sp)
+                Text("Библиотека", color = ColorTextMuted, fontSize = 9.sp)
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onOpenEqualizer() }
+            ) {
+                Text("🎛️", fontSize = 14.sp)
+                Text("EQ", color = ColorTurquoise, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onSleepTimerClick() }
+            ) {
+                Text("⏱️", fontSize = 14.sp)
+                Text("Таймер", color = ColorTextMuted, fontSize = 9.sp)
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onRequestOverlayPermission() }
+            ) {
+                Text("🐸", fontSize = 14.sp)
+                Text("Свернуть", color = Color(0xFF22C55E), fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1566,7 +1596,7 @@ fun SettingsTabContent(
                 }
                 Pair(ver, code)
             } catch (e: Exception) {
-                Pair("1.0.0-beta19", 19L)
+                Pair("1.0.0-beta20", 20L)
             }
         }
         Column(
@@ -2268,11 +2298,11 @@ fun OnlineMusicSearchModal(
 
     val presetOnlineTracks = remember {
         listOf(
-            Triple("Cyber City Overdrive", "Synthwave Syndicate", "Phonk / Synth") to ("https://actions.google.com/sounds/v1/science_fiction/alien_spaceship_atmosphere.ogg" to "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&q=80"),
-            Triple("Bass Pressure VIP", "Neurofunk Sub HQ", "Drum & Bass") to ("https://actions.google.com/sounds/v1/science_fiction/alien_pulse.ogg" to "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80"),
-            Triple("Midnight Groove Lounge", "Tokyo Lo-Fi Beat", "Lo-Fi Beats") to ("https://actions.google.com/sounds/v1/ambiences/subway_ambient_murmur.ogg" to "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80"),
-            Triple("Heavy Metal Resonance", "Ironclad Distortion", "Rock / Metal") to ("https://actions.google.com/sounds/v1/transportation/freight_train_horn_loud.ogg" to "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&q=80"),
-            Triple("Deep Space Sub Harmonic", "Cosmic Bass Lab", "Deep House") to ("https://actions.google.com/sounds/v1/science_fiction/spaceship_door_open.ogg" to "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=500&q=80")
+            Triple("Summer Chillout Lo-Fi", "Ghostrifter Official", "Lo-Fi / Hip-Hop") to ("https://upload.wikimedia.org/wikipedia/commons/e/ec/Ghostrifter_Official_-_Hot_Coffee.mp3" to "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&q=80"),
+            Triple("Cyberpunk Overdrive", "Karl Casey", "Synthwave / Phonk") to ("https://upload.wikimedia.org/wikipedia/commons/6/6d/Karl_Casey_-_Cyberpunk_2080.mp3" to "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&q=80"),
+            Triple("Deep Space Resonance", "Alexander Nakarada", "Ambient Space") to ("https://upload.wikimedia.org/wikipedia/commons/b/b5/Alexander_Nakarada_-_Space_Ambient.mp3" to "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=500&q=80"),
+            Triple("Heavy Metal Overlord", "Makai Symphony", "Rock / Metal") to ("https://upload.wikimedia.org/wikipedia/commons/a/a9/Makai_Symphony_-_Dragon_Castle.mp3" to "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&q=80"),
+            Triple("Acoustic Sunset Breeze", "Audionautix", "Acoustic Pop") to ("https://upload.wikimedia.org/wikipedia/commons/1/14/Audionautix_-_Acoustic_Guitar.mp3" to "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80")
         )
     }
 

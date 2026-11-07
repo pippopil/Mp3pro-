@@ -57,48 +57,99 @@ class CoverArtRepository(private val context: Context) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
         val encodedQuery = URLEncoder.encode(trimmed, "UTF-8")
-        val url = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=30"
+        val itunesUrl = "https://itunes.apple.com/search?term=" + encodedQuery + "&media=music&entity=song&limit=30"
 
         val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "MP3PlayerPro-Android/6.8")
+            .url(itunesUrl)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .build()
 
+        val list = mutableListOf<OnlineMusicTrack>()
         try {
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val jsonString = response.body?.string() ?: return@withContext emptyList()
-                val json = JSONObject(jsonString)
-                val results = json.optJSONArray("results") ?: return@withContext emptyList()
+                if (response.isSuccessful) {
+                    val jsonString = response.body?.string() ?: ""
+                    if (jsonString.isNotBlank()) {
+                        val json = JSONObject(jsonString)
+                        val results = json.optJSONArray("results")
+                        if (results != null) {
+                            for (i in 0 until results.length()) {
+                                val item = results.getJSONObject(i)
+                                val previewUrl = item.optString("previewUrl")
+                                if (previewUrl.isNullOrBlank()) continue
 
-                val list = mutableListOf<OnlineMusicTrack>()
-                for (i in 0 until results.length()) {
-                    val item = results.getJSONObject(i)
-                    val previewUrl = item.optString("previewUrl")
-                    if (previewUrl.isNullOrBlank()) continue
+                                val rawArtUrl = item.optString("artworkUrl100")
+                                val hdArtUrl = rawArtUrl.replace("100x100bb.jpg", "600x600bb.jpg")
 
-                    val rawArtUrl = item.optString("artworkUrl100")
-                    val hdArtUrl = rawArtUrl.replace("100x100bb.jpg", "600x600bb.jpg")
-
-                    list.add(
-                        OnlineMusicTrack(
-                            trackId = item.optLong("trackId"),
-                            title = item.optString("trackName", "Без названия"),
-                            artist = item.optString("artistName", "Неизвестный исполнитель"),
-                            album = item.optString("collectionName", "Сингл"),
-                            genre = item.optString("primaryGenreName", "Музыка"),
-                            audioUrl = previewUrl,
-                            coverUrl = hdArtUrl,
-                            durationMs = item.optLong("trackTimeMillis", 30000L)
-                        )
-                    )
+                                list.add(
+                                    OnlineMusicTrack(
+                                        trackId = item.optLong("trackId"),
+                                        title = item.optString("trackName", "Без названия"),
+                                        artist = item.optString("artistName", "Неизвестный исполнитель"),
+                                        album = item.optString("collectionName", "Сингл"),
+                                        genre = item.optString("primaryGenreName", "Музыка"),
+                                        audioUrl = previewUrl,
+                                        coverUrl = hdArtUrl,
+                                        durationMs = item.optLong("trackTimeMillis", 30000L)
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
-                list
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
         }
+
+        // Резервный источник Jamendo Music для гарантированного нахождения и скачивания полных MP3 треков
+        if (list.isEmpty()) {
+            try {
+                val jamendoUrl = "https://api.jamendo.com/v3.0/tracks/?client_id=56d30c95&format=json&limit=25&namesearch=" + encodedQuery + "&include=musicinfo"
+                val jamendoReq = Request.Builder()
+                    .url(jamendoUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                    .build()
+                httpClient.newCall(jamendoReq).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val jsonString = response.body?.string() ?: ""
+                        if (jsonString.isNotBlank()) {
+                            val json = JSONObject(jsonString)
+                            val results = json.optJSONArray("results")
+                            if (results != null) {
+                                for (i in 0 until results.length()) {
+                                    val item = results.getJSONObject(i)
+                                    val audioStream = item.optString("audio")
+                                    if (audioStream.isNullOrBlank()) continue
+                                    val artUrl = item.optString("album_image", item.optString("image"))
+                                    val trackTitle = item.optString("name", "Трек")
+                                    val artistName = item.optString("artist_name", "Исполнитель")
+                                    val albumName = item.optString("album_name", "Jamendo Free")
+                                    val durationSec = item.optLong("duration", 180L)
+
+                                    list.add(
+                                        OnlineMusicTrack(
+                                            trackId = item.optLong("id", System.currentTimeMillis()),
+                                            title = trackTitle,
+                                            artist = artistName,
+                                            album = albumName,
+                                            genre = "Jamendo HQ",
+                                            audioUrl = audioStream,
+                                            coverUrl = if (artUrl.isNotBlank()) artUrl else "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80",
+                                            durationMs = durationSec * 1000L
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        list
     }
 
     /**
