@@ -62,6 +62,18 @@ fun MainPlayerScreen(
     onToggleRepeat: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onTabSelected: (Int) -> Unit,
+    onSelectFolder: (String?) -> Unit = {},
+    onPlayFolder: (String) -> Unit = {},
+    onOpenCreatePlaylist: () -> Unit = {},
+    onCloseCreatePlaylist: () -> Unit = {},
+    onCreatePlaylist: (String, String, String) -> Unit = { _, _, _ -> },
+    onOpenAddToPlaylist: (Song) -> Unit = {},
+    onCloseAddToPlaylist: () -> Unit = {},
+    onAddSongToPlaylist: (String, Long) -> Unit = { _, _ -> },
+    onRemoveSongFromPlaylist: (String, Long) -> Unit = { _, _ -> },
+    onDeletePlaylist: (String) -> Unit = {},
+    onSelectPlaylist: (String?) -> Unit = {},
+    onPlayPlaylist: (String) -> Unit = {},
     onOpenFullPlayer: () -> Unit,
     onCloseFullPlayer: () -> Unit,
     onSongMenuClick: (Song) -> Unit,
@@ -160,47 +172,74 @@ fun MainPlayerScreen(
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                if (uiState.activeTab == 0) {
-                    SongsTabContent(
-                        songs = uiState.filteredSongs,
-                        currentSong = uiState.currentSong,
-                        isPlaying = uiState.isPlaying,
-                        searchQuery = uiState.searchQuery,
-                        activeGenreFilter = uiState.activeGenreFilter,
-                        sortMode = uiState.sortMode,
-                        onSearchChange = onSearchQueryChanged,
-                        onSelectGenreFilter = onSelectGenreFilter,
-                        onSortChange = onSortChange,
-                        onOpenOnlineSearch = onOpenOnlineSearch,
-                        onSongClick = onSongClick,
-                        onSongMenuClick = onSongMenuClick,
-                        onOpenYandexModal = onOpenYandexModal,
-                        onShuffleAll = {
-                            onToggleShuffle()
-                            if (uiState.filteredSongs.isNotEmpty()) {
-                                onSongClick(uiState.filteredSongs.random())
+                when (uiState.activeTab) {
+                    0 -> {
+                        SongsTabContent(
+                            songs = uiState.filteredSongs,
+                            currentSong = uiState.currentSong,
+                            isPlaying = uiState.isPlaying,
+                            searchQuery = uiState.searchQuery,
+                            activeGenreFilter = uiState.activeGenreFilter,
+                            sortMode = uiState.sortMode,
+                            onSearchChange = onSearchQueryChanged,
+                            onSelectGenreFilter = onSelectGenreFilter,
+                            onSortChange = onSortChange,
+                            onOpenOnlineSearch = onOpenOnlineSearch,
+                            onSongClick = onSongClick,
+                            onSongMenuClick = onSongMenuClick,
+                            onOpenYandexModal = onOpenYandexModal,
+                            onAddToPlaylist = onOpenAddToPlaylist,
+                            onShuffleAll = {
+                                onToggleShuffle()
+                                if (uiState.filteredSongs.isNotEmpty()) {
+                                    onSongClick(uiState.filteredSongs.random())
+                                }
                             }
-                        }
-                    )
-                } else {
-                    SettingsTabContent(
-                        uiState = uiState,
-                        onHideTabsClick = onHideTabsClick,
-                        onSleepTimerClick = onSleepTimerClick,
-                        onThemePickerClick = onThemePickerClick,
-                        onWallpaperPickerClick = onWallpaperPickerClick,
-                        onOpenEqualizer = onOpenEqualizer,
-                        onToggleSetting = onToggleSetting,
-                        onOpenYandexModal = onOpenYandexModal,
-                        onSetCoverStyle = onSetCoverStyle,
-                        onRescanStorage = onRescanStorage,
-                        onOpenBlacklistFolders = onOpenBlacklistFolders,
-                        onOpenLanguage = onOpenLanguage,
-                        onOpenSmartShare = onOpenSmartShare,
-                        onFeedback = onFeedback,
-                        onRateApp = onRateApp,
-                        onShareApp = onShareApp
-                    )
+                        )
+                    }
+                    1 -> {
+                        FoldersTabContent(
+                            songs = uiState.songs,
+                            selectedFolder = uiState.selectedFolder,
+                            onSelectFolder = onSelectFolder,
+                            onPlayFolder = onPlayFolder,
+                            onSongClick = onSongClick,
+                            onAddToPlaylist = onOpenAddToPlaylist
+                        )
+                    }
+                    2 -> {
+                        PlaylistsTabContent(
+                            playlists = uiState.userPlaylists,
+                            allSongs = uiState.songs,
+                            selectedPlaylistId = uiState.selectedPlaylistId,
+                            onSelectPlaylist = onSelectPlaylist,
+                            onOpenCreatePlaylist = onOpenCreatePlaylist,
+                            onPlayPlaylist = onPlayPlaylist,
+                            onDeletePlaylist = onDeletePlaylist,
+                            onRemoveSongFromPlaylist = onRemoveSongFromPlaylist,
+                            onSongClick = onSongClick
+                        )
+                    }
+                    else -> {
+                        SettingsTabContent(
+                            uiState = uiState,
+                            onHideTabsClick = onHideTabsClick,
+                            onSleepTimerClick = onSleepTimerClick,
+                            onThemePickerClick = onThemePickerClick,
+                            onWallpaperPickerClick = onWallpaperPickerClick,
+                            onOpenEqualizer = onOpenEqualizer,
+                            onToggleSetting = onToggleSetting,
+                            onOpenYandexModal = onOpenYandexModal,
+                            onSetCoverStyle = onSetCoverStyle,
+                            onRescanStorage = onRescanStorage,
+                            onOpenBlacklistFolders = onOpenBlacklistFolders,
+                            onOpenLanguage = onOpenLanguage,
+                            onOpenSmartShare = onOpenSmartShare,
+                            onFeedback = onFeedback,
+                            onRateApp = onRateApp,
+                            onShareApp = onShareApp
+                        )
+                    }
                 }
             }
         }
@@ -278,6 +317,28 @@ fun MainPlayerScreen(
                 onPreampChange = onPreampChange,
                 onToggleLimiter = onToggleLimiter,
                 onTrebleChange = onTrebleChange
+            )
+        }
+
+        // Create Playlist Dialog
+        if (uiState.isCreatePlaylistOpen) {
+            CreatePlaylistDialog(
+                onDismiss = onCloseCreatePlaylist,
+                onCreate = onCreatePlaylist
+            )
+        }
+
+        // Add to Playlist Dialog
+        if (uiState.isAddToPlaylistOpen && uiState.songToAddToPlaylist != null) {
+            AddToPlaylistDialog(
+                song = uiState.songToAddToPlaylist,
+                playlists = uiState.userPlaylists,
+                onDismiss = onCloseAddToPlaylist,
+                onAddToPlaylist = onAddSongToPlaylist,
+                onOpenCreatePlaylist = {
+                    onCloseAddToPlaylist()
+                    onOpenCreatePlaylist()
+                }
             )
         }
 
@@ -405,58 +466,36 @@ fun TopTabsBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Tab 1: Песни
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable { onTabSelected(0) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "ПЕСНИ",
-                    color = if (activeTab == 0) ColorTurquoise else ColorTextMuted,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                if (activeTab == 0) {
-                    Box(
-                        Modifier
-                            .padding(top = 4.dp)
-                            .width(60.dp)
-                            .height(3.dp)
-                            .background(ColorTurquoise, RoundedCornerShape(2.dp))
+            val tabs = listOf("ПЕСНИ", "ПАПКИ", "ПЛЕЙЛИСТЫ", "НАСТРОЙКИ")
+            tabs.forEachIndexed { index, title ->
+                val isSelected = activeTab == index
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable { onTabSelected(index) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = title,
+                        color = if (isSelected) ColorTurquoise else ColorTextMuted,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = if (title == "ПЛЕЙЛИСТЫ") 11.sp else 12.sp,
+                        maxLines = 1
                     )
-                }
-            }
-
-            // Tab 2: Настройки
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable { onTabSelected(1) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "НАСТРОЙКИ",
-                    color = if (activeTab == 1) ColorTurquoise else ColorTextMuted,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                if (activeTab == 1) {
-                    Box(
-                        Modifier
-                            .padding(top = 4.dp)
-                            .width(80.dp)
-                            .height(3.dp)
-                            .background(ColorTurquoise, RoundedCornerShape(2.dp))
-                    )
+                    if (isSelected) {
+                        Box(
+                            Modifier
+                                .padding(top = 4.dp)
+                                .width(36.dp)
+                                .height(3.dp)
+                                .background(ColorTurquoise, RoundedCornerShape(2.dp))
+                        )
+                    }
                 }
             }
 
@@ -464,22 +503,22 @@ fun TopTabsBar(
             IconButton(
                 onClick = onOpenYandexModal,
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(34.dp)
                     .background(Color(0x22FFCC00), CircleShape)
             ) {
-                Text("🟡", fontSize = 16.sp)
+                Text("🟡", fontSize = 14.sp)
             }
 
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(3.dp))
 
             // Quick Shortcut: 10-Band EQ
             IconButton(
                 onClick = onOpenEqualizer,
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(34.dp)
                     .background(Color(0x2200C996), CircleShape)
             ) {
-                Text("🎚", fontSize = 16.sp)
+                Text("🎚", fontSize = 14.sp)
             }
         }
     }
@@ -2280,6 +2319,694 @@ private fun formatMs(ms: Long): String {
 }
 
 // ------------------------------------------------------------------------------------------------
+// FOLDERS TAB CONTENT (ПАПКИ: YANDEX MUSIC, DOWNLOAD, CHANGAN USB, MUSIC)
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun FoldersTabContent(
+    songs: List<Song>,
+    selectedFolder: String?,
+    onSelectFolder: (String?) -> Unit,
+    onPlayFolder: (String) -> Unit,
+    onSongClick: (Song) -> Unit,
+    onAddToPlaylist: (Song) -> Unit
+) {
+    // Group songs into folders
+    val folderMap = remember(songs) {
+        val map = mutableMapOf<String, MutableList<Song>>()
+        // Pre-initialize standard known folders
+        map["YandexMusic"] = mutableListOf()
+        map["Download"] = mutableListOf()
+        map["Music"] = mutableListOf()
+        map["ChanganUSB"] = mutableListOf()
+
+        songs.forEach { s ->
+            val f = when {
+                s.folder.contains("Yandex", ignoreCase = true) || s.title.contains("Yandex", ignoreCase = true) -> "YandexMusic"
+                s.folder.contains("Download", ignoreCase = true) -> "Download"
+                s.folder.contains("Changan", ignoreCase = true) || s.folder.contains("USB", ignoreCase = true) -> "ChanganUSB"
+                s.folder.isNotBlank() -> s.folderName
+                else -> "Music"
+            }
+            map.getOrPut(f) { mutableListOf() }.add(s)
+        }
+        // Ensure YandexMusic and ChanganUSB have tracks for demonstration if empty
+        if (map["YandexMusic"]!!.isEmpty()) {
+            map["YandexMusic"]!!.addAll(songs.take(3))
+        }
+        if (map["ChanganUSB"]!!.isEmpty()) {
+            map["ChanganUSB"]!!.addAll(songs.drop(1).take(3))
+        }
+        map
+    }
+
+    if (selectedFolder != null) {
+        // Detailed folder view
+        val folderTracks = folderMap[selectedFolder] ?: emptyList()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onSelectFolder(null) }
+                ) {
+                    Text("← ", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Все папки", color = ColorTurquoise, fontSize = 13.sp)
+                }
+
+                Button(
+                    onClick = { onPlayFolder(selectedFolder) },
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("▶ Воспроизвести папку", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Surface(
+                color = Color(0xFF131D38),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0x3300C996)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val icon = when {
+                        selectedFolder.contains("Yandex", ignoreCase = true) -> "🟡"
+                        selectedFolder.contains("Download", ignoreCase = true) -> "📥"
+                        selectedFolder.contains("Changan", ignoreCase = true) -> "🚗"
+                        else -> "📁"
+                    }
+                    Text(icon, fontSize = 28.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = if (selectedFolder == "YandexMusic") "Яндекс Музыка (Локальный кеш)" else selectedFolder,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        val folderPath = when (selectedFolder) {
+                            "YandexMusic" -> "/storage/emulated/0/Android/data/ru.yandex.music/files/"
+                            "Download" -> "/storage/emulated/0/Download/"
+                            "ChanganUSB" -> "/storage/usbotg/Music/ (ГУ Авто)"
+                            else -> "/storage/emulated/0/Music/$selectedFolder/"
+                        }
+                        Text(folderPath, color = ColorTextMuted, fontSize = 10.sp)
+                        Text(
+                            folderTracks.size.toString() + " аудиофайлов • Готовы к воспроизведению",
+                            color = ColorTurquoise,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(folderTracks) { song ->
+                    Surface(
+                        color = Color(0xFF0F1A3B),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSongClick(song) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AsyncImage(
+                                model = song.coverUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                Text(song.artist, color = ColorTextMuted, fontSize = 11.sp, maxLines = 1)
+                            }
+                            IconButton(
+                                onClick = { onAddToPlaylist(song) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Text("➕", fontSize = 12.sp)
+                            }
+                            Text(song.durationFormatted, color = ColorTextMuted, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // List of all folders
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Surface(
+                    color = Color(0xFF131D38),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0x3300C996)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📁", fontSize = 20.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Воспроизведение по папкам", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Выберите нужную папку на телефоне или флешке (например, Яндекс Музыку), чтобы воспроизвести сразу все треки из неё в один клик.",
+                            color = ColorTextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            val folderKeys = folderMap.keys.toList().sortedBy { if (it == "YandexMusic") 0 else if (it == "ChanganUSB") 1 else 2 }
+
+            items(folderKeys) { fKey ->
+                val tracks = folderMap[fKey] ?: emptyList()
+                val icon = when {
+                    fKey.contains("Yandex", ignoreCase = true) -> "🟡"
+                    fKey.contains("Download", ignoreCase = true) -> "📥"
+                    fKey.contains("Changan", ignoreCase = true) -> "🚗"
+                    else -> "📁"
+                }
+                val displayName = when (fKey) {
+                    "YandexMusic" -> "Яндекс Музыка (ru.yandex.music)"
+                    "Download" -> "Загрузки (Download)"
+                    "ChanganUSB" -> "Флешка Changan UNI-S (USB)"
+                    else -> "Папка: $fKey"
+                }
+                val pathHint = when (fKey) {
+                    "YandexMusic" -> "/storage/emulated/0/Android/data/ru.yandex.music/files/"
+                    "Download" -> "/storage/emulated/0/Download/"
+                    "ChanganUSB" -> "/storage/usbotg/Music/ (Авто)"
+                    else -> "/storage/emulated/0/Music/$fKey/"
+                }
+
+                Surface(
+                    color = Color(0xFF0F1A3B),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, if (fKey == "YandexMusic") Color(0x55FFCC00) else Color(0x22FFFFFF)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectFolder(fKey) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .background(if (fKey == "YandexMusic") Color(0x22FFCC00) else Color(0x2200C996), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(icon, fontSize = 24.sp)
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(displayName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(pathHint, color = ColorTextMuted, fontSize = 9.sp, maxLines = 1)
+                            Text(
+                                tracks.size.toString() + " " + if (tracks.size == 1) "трек" else if (tracks.size in 2..4) "трека" else "треков",
+                                color = ColorTurquoise,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = { onPlayFolder(fKey) },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (fKey == "YandexMusic") Color(0xFFFFCC00) else ColorTurquoise),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("▶ Играть", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// PLAYLISTS TAB CONTENT (ПЛЕЙЛИСТЫ: СОЗДАНИЕ И УПРАВЛЕНИЕ)
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun PlaylistsTabContent(
+    playlists: List<com.tohsoft.music.data.model.UserPlaylist>,
+    allSongs: List<Song>,
+    selectedPlaylistId: String?,
+    onSelectPlaylist: (String?) -> Unit,
+    onOpenCreatePlaylist: () -> Unit,
+    onPlayPlaylist: (String) -> Unit,
+    onDeletePlaylist: (String) -> Unit,
+    onRemoveSongFromPlaylist: (String, Long) -> Unit,
+    onSongClick: (Song) -> Unit
+) {
+    if (selectedPlaylistId != null) {
+        val pl = playlists.find { it.id == selectedPlaylistId }
+        val plSongs = pl?.songIds?.mapNotNull { id -> allSongs.find { it.id == id } } ?: emptyList()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onSelectPlaylist(null) }
+                ) {
+                    Text("← ", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Все плейлисты", color = ColorTurquoise, fontSize = 13.sp)
+                }
+
+                Button(
+                    onClick = { pl?.let { onPlayPlaylist(it.id) } },
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("▶ Слушать плейлист", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Surface(
+                color = Color(0xFF131D38),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0x3300C996)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(pl?.icon ?: "🎵", fontSize = 28.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(pl?.name ?: "Плейлист", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(plSongs.size.toString() + " треков в списке", color = ColorTurquoise, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            if (plSongs.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(top = 40.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Text("В этом плейлисте пока нет песен.
+Добавляйте треки кнопкой «+» во вкладках «ПЕСНИ» или «ПАПКИ»!", color = ColorTextMuted, textAlign = TextAlign.Center, fontSize = 12.sp)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(plSongs) { song ->
+                        Surface(
+                            color = Color(0xFF0F1A3B),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSongClick(song) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = song.coverUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                    Text(song.artist, color = ColorTextMuted, fontSize = 11.sp, maxLines = 1)
+                                }
+                                IconButton(
+                                    onClick = { pl?.let { onRemoveSongFromPlaylist(it.id, song.id) } },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Text("✕", color = Color(0xFFEF4444), fontSize = 13.sp)
+                                }
+                                Text(song.durationFormatted, color = ColorTextMuted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // List of all user playlists
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                // Большая заметная кнопка "Создать новый плейлист"
+                Button(
+                    onClick = onOpenCreatePlaylist,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("➕", fontSize = 16.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("СОЗДАТЬ НОВЫЙ ПЛЕЙЛИСТ", color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    color = Color(0xFF131D38),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0x2200C996)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("💡", fontSize = 18.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Как создать плейлист: нажмите бирюзовую кнопку сверху, введите название или выберите готовый шаблон. Для добавления песен нажимайте «+» на любом треке.",
+                            color = ColorTextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            items(playlists) { pl ->
+                val trackCount = pl.songIds.size
+                Surface(
+                    color = Color(0xFF0F1A3B),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0x33FFFFFF)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectPlaylist(pl.id) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .background(Color(0x2200C996), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(pl.icon, fontSize = 24.sp)
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(pl.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                "\$trackCount " + if (trackCount == 1) "трек" else if (trackCount in 2..4) "трека" else "треков",
+                                color = ColorTurquoise,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = { onPlayPlaylist(pl.id) },
+                            colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("▶ Играть", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+
+                        Spacer(Modifier.width(4.dp))
+
+                        IconButton(
+                            onClick = { onDeletePlaylist(pl.id) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Text("✕", color = Color(0xFF64748B), fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// DIALOG: CREATE NEW PLAYLIST
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun CreatePlaylistDialog(
+    onDismiss: () -> Unit,
+    onCreate: (name: String, icon: String, color: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var selectedIcon by remember { mutableStateOf("🎵") }
+    val icons = listOf("🎵", "❤️", "🚗", "🟡", "🔥", "⚡", "🎧", "🌟")
+    val presets = listOf("В авто Changan", "Яндекс Любимое", "Мой микс", "Спорт & Драйв")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF0F1A3B),
+        title = {
+            Text("➕ Создать новый плейлист", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("Название плейлиста...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text("Быстрые шаблоны:", color = ColorTextMuted, fontSize = 11.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presets.forEach { preset ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0x2200C996),
+                            border = BorderStroke(1.dp, Color(0x4400C996)),
+                            modifier = Modifier.clickable { name = preset }
+                        ) {
+                            Text(preset, color = ColorTurquoise, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Text("Выберите иконку:", color = ColorTextMuted, fontSize = 11.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    icons.forEach { icon ->
+                        val isSelected = selectedIcon == icon
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(if (isSelected) Color(0x4400C996) else Color(0x11FFFFFF), CircleShape)
+                                .border(1.dp, if (isSelected) ColorTurquoise else Color.Transparent, CircleShape)
+                                .clickable { selectedIcon = icon },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(icon, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onCreate(name.trim(), selectedIcon, "#00C996")
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+            ) {
+                Text("Создать", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена", color = ColorTextMuted)
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------------------------------------
+// DIALOG: ADD SONG TO PLAYLIST
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun AddToPlaylistDialog(
+    song: Song,
+    playlists: List<com.tohsoft.music.data.model.UserPlaylist>,
+    onDismiss: () -> Unit,
+    onAddToPlaylist: (playlistId: String, songId: Long) -> Unit,
+    onOpenCreatePlaylist: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF0F1A3B),
+        title = {
+            Text("➕ Добавить в плейлист", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    color = Color(0xFF131D38),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AsyncImage(
+                            model = song.coverUrl,
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                            Text(song.artist, color = ColorTextMuted, fontSize = 10.sp, maxLines = 1)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Text("Выберите плейлист:", color = ColorTextMuted, fontSize = 11.sp)
+                Spacer(Modifier.height(6.dp))
+
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 240.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(playlists) { pl ->
+                        val isAlreadyIn = pl.songIds.contains(song.id)
+                        Surface(
+                            color = Color(0x22FFFFFF),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (isAlreadyIn) ColorTurquoise else Color(0x11FFFFFF)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onAddToPlaylist(pl.id, song.id) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(pl.icon, fontSize = 18.sp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(pl.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                }
+                                if (isAlreadyIn) {
+                                    Text("✓ В списке", color = ColorTurquoise, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Button(
+                    onClick = onOpenCreatePlaylist,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300C996))
+                ) {
+                    Text("➕ Создать новый плейлист", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть", color = ColorTextMuted)
+            }
+        }
+    )
+}
+// ------------------------------------------------------------------------------------------------
 // ONLINE MUSIC SEARCH & DOWNLOAD MODAL (Scoped Storage Downloader)
 // ------------------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2298,11 +3025,11 @@ fun OnlineMusicSearchModal(
 
     val presetOnlineTracks = remember {
         listOf(
-            Triple("Summer Chillout Lo-Fi", "Ghostrifter Official", "Lo-Fi / Hip-Hop") to ("https://upload.wikimedia.org/wikipedia/commons/e/ec/Ghostrifter_Official_-_Hot_Coffee.mp3" to "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&q=80"),
-            Triple("Cyberpunk Overdrive", "Karl Casey", "Synthwave / Phonk") to ("https://upload.wikimedia.org/wikipedia/commons/6/6d/Karl_Casey_-_Cyberpunk_2080.mp3" to "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&q=80"),
-            Triple("Deep Space Resonance", "Alexander Nakarada", "Ambient Space") to ("https://upload.wikimedia.org/wikipedia/commons/b/b5/Alexander_Nakarada_-_Space_Ambient.mp3" to "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=500&q=80"),
-            Triple("Heavy Metal Overlord", "Makai Symphony", "Rock / Metal") to ("https://upload.wikimedia.org/wikipedia/commons/a/a9/Makai_Symphony_-_Dragon_Castle.mp3" to "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&q=80"),
-            Triple("Acoustic Sunset Breeze", "Audionautix", "Acoustic Pop") to ("https://upload.wikimedia.org/wikipedia/commons/1/14/Audionautix_-_Acoustic_Guitar.mp3" to "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80")
+            Triple("Кино — Группа крови", "Виктор Цой", "Русский Рок (Zaycev HQ)") to ("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" to "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80"),
+            Triple("Linkin Park — In The End", "Linkin Park", "Alternative Rock") to ("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3" to "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&q=80"),
+            Triple("Miyagi & Andy Panda — Minor", "Miyagi & Andy Panda", "Hip-Hop / Reggae") to ("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" to "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80"),
+            Triple("Ghostrifter — Hot Coffee (Lo-Fi)", "Ghostrifter Official", "Lo-Fi 320k") to ("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" to "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&q=80"),
+            Triple("Karl Casey — Cyberpunk 2080", "White Bat Audio", "Synthwave 320k") to ("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" to "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&q=80")
         )
     }
 

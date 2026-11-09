@@ -25,7 +25,8 @@ class MusicRepository(private val context: Context) {
                 year = 2025,
                 bitrate = "320 kbps MP3 HQ",
                 isBuiltIn = true,
-                recommendedPreset = "Drum & Bass (DnB 174 BPM)"
+                recommendedPreset = "Drum & Bass (DnB 174 BPM)",
+                folder = "Music/DrumAndBass"
             ),
             Song(
                 id = -102L,
@@ -39,11 +40,12 @@ class MusicRepository(private val context: Context) {
                 year = 2025,
                 bitrate = "320 kbps MP3 HQ",
                 isBuiltIn = true,
-                recommendedPreset = "Techno (Техно рамбл)"
+                recommendedPreset = "Techno (Техно рамбл)",
+                folder = "Music/Techno"
             ),
             Song(
                 id = -103L,
-                title = "Neon Horizon",
+                title = "Neon Horizon (Yandex Music HQ)",
                 artist = "Vector Prime",
                 album = "Cyberpunk 2088 OST",
                 durationMs = 184000L,
@@ -53,11 +55,12 @@ class MusicRepository(private val context: Context) {
                 year = 2024,
                 bitrate = "FLAC 24-bit 96kHz",
                 isBuiltIn = true,
-                recommendedPreset = "Electronic / EDM (Клубная)"
+                recommendedPreset = "Electronic / EDM (Клубная)",
+                folder = "YandexMusic"
             ),
             Song(
                 id = -104L,
-                title = "Shadow Overdrive",
+                title = "Shadow Overdrive (Yandex Music HQ)",
                 artist = "Iron Resonance",
                 album = "High Octane Distortion",
                 durationMs = 215000L,
@@ -67,7 +70,8 @@ class MusicRepository(private val context: Context) {
                 year = 2024,
                 bitrate = "320 kbps MP3",
                 isBuiltIn = true,
-                recommendedPreset = "Rock (Рок)"
+                recommendedPreset = "Rock (Рок)",
+                folder = "YandexMusic"
             ),
             Song(
                 id = -105L,
@@ -81,11 +85,12 @@ class MusicRepository(private val context: Context) {
                 year = 2024,
                 bitrate = "320 kbps MP3",
                 isBuiltIn = true,
-                recommendedPreset = "Deep Sub-Bass (Глубокий саб)"
+                recommendedPreset = "Deep Sub-Bass (Глубокий саб)",
+                folder = "Download"
             ),
             Song(
                 id = -106L,
-                title = "Acoustic Dawn",
+                title = "Acoustic Dawn (Yandex Music HQ)",
                 artist = "Clara Vance & Strings",
                 album = "Unplugged Session",
                 durationMs = 168000L,
@@ -95,7 +100,8 @@ class MusicRepository(private val context: Context) {
                 year = 2025,
                 bitrate = "FLAC 24-bit 48kHz",
                 isBuiltIn = true,
-                recommendedPreset = "Acoustic (Акустика)"
+                recommendedPreset = "Acoustic (Акустика)",
+                folder = "YandexMusic"
             ),
             Song(
                 id = -107L,
@@ -109,7 +115,8 @@ class MusicRepository(private val context: Context) {
                 year = 2023,
                 bitrate = "320 kbps MP3",
                 isBuiltIn = true,
-                recommendedPreset = "Lounge & Chillout (Лаунж отдых)"
+                recommendedPreset = "Lounge & Chillout (Лаунж отдых)",
+                folder = "Download"
             )
         )
     }
@@ -156,6 +163,19 @@ class MusicRepository(private val context: Context) {
                         albumId
                     )
 
+                    val resolvedFolder = if (path.isNotBlank()) {
+                        val parent = path.substringBeforeLast('/', "")
+                        if (parent.contains("ru.yandex.music", ignoreCase = true) || parent.contains("YandexMusic", ignoreCase = true)) {
+                            "YandexMusic"
+                        } else if (parent.contains("Download", ignoreCase = true)) {
+                            "Download"
+                        } else {
+                            parent.substringAfterLast('/').ifBlank { "Music" }
+                        }
+                    } else {
+                        "Music"
+                    }
+
                     songList.add(
                         Song(
                             id = id,
@@ -167,6 +187,7 @@ class MusicRepository(private val context: Context) {
                             albumArtUri = albumArtUri,
                             dataPath = path,
                             genre = "Локальный файл",
+                            folder = resolvedFolder,
                             isBuiltIn = false
                         )
                     )
@@ -179,5 +200,87 @@ class MusicRepository(private val context: Context) {
         // Добавляем встроенные тестовые треки в самое начало списка
         songList.addAll(0, BUILT_IN_TEST_TRACKS)
         songList
+    }
+
+    private val prefs = context.getSharedPreferences("mp3pro_playlists_store", Context.MODE_PRIVATE)
+
+    fun loadUserPlaylists(): List<com.tohsoft.music.data.model.UserPlaylist> {
+        val json = prefs.getString("user_playlists_json", null)
+        if (!json.isNullOrBlank()) {
+            try {
+                val array = org.json.JSONArray(json)
+                val list = mutableListOf<com.tohsoft.music.data.model.UserPlaylist>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val songIdsArray = obj.optJSONArray("songIds")
+                    val songIds = mutableListOf<Long>()
+                    if (songIdsArray != null) {
+                        for (j in 0 until songIdsArray.length()) {
+                            songIds.add(songIdsArray.getLong(j))
+                        }
+                    }
+                    list.add(
+                        com.tohsoft.music.data.model.UserPlaylist(
+                            id = obj.getString("id"),
+                            name = obj.getString("name"),
+                            icon = obj.optString("icon", "🎵"),
+                            colorHex = obj.optString("colorHex", "#00C996"),
+                            songIds = songIds,
+                            createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                        )
+                    )
+                }
+                if (list.isNotEmpty()) return list
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        // Дефолтные готовые плейлисты для Changan, Яндекс Музыки и Избранного
+        val defaultList = listOf(
+            com.tohsoft.music.data.model.UserPlaylist(
+                id = "pl-yandex",
+                name = "🟡 Яндекс Музыка (Офлайн)",
+                icon = "🟡",
+                colorHex = "#FFCC00",
+                songIds = listOf(-103L, -104L, -106L)
+            ),
+            com.tohsoft.music.data.model.UserPlaylist(
+                id = "pl-changan",
+                name = "🚗 В авто Changan UNI-S",
+                icon = "🚗",
+                colorHex = "#00C996",
+                songIds = listOf(-101L, -102L, -105L)
+            ),
+            com.tohsoft.music.data.model.UserPlaylist(
+                id = "pl-favorites",
+                name = "❤️ Избранное (Любимые)",
+                icon = "❤️",
+                colorHex = "#E11D48",
+                songIds = listOf(-101L, -103L)
+            )
+        )
+        saveUserPlaylists(defaultList)
+        return defaultList
+    }
+
+    fun saveUserPlaylists(playlists: List<com.tohsoft.music.data.model.UserPlaylist>) {
+        try {
+            val array = org.json.JSONArray()
+            for (pl in playlists) {
+                val obj = org.json.JSONObject()
+                obj.put("id", pl.id)
+                obj.put("name", pl.name)
+                obj.put("icon", pl.icon)
+                obj.put("colorHex", pl.colorHex)
+                obj.put("createdAt", pl.createdAt)
+                val songsArr = org.json.JSONArray()
+                pl.songIds.forEach { songsArr.put(it) }
+                obj.put("songIds", songsArr)
+                array.put(obj)
+            }
+            prefs.edit().putString("user_playlists_json", array.toString()).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

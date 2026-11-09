@@ -37,3 +37,12 @@ data class Song(
             return "$minutes:$sec"
         }
 }
+
+data class UserPlaylist(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val icon: String = "🎵",
+    val colorHex: String = "#00C996",
+    val songIds: List<Long> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis()
+)
