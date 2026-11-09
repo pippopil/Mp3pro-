@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import com.tohsoft.music.MainActivity
 
 class MusicPlaybackService : Service() {
@@ -125,7 +126,7 @@ class MusicPlaybackService : Service() {
             .addAction(android.R.drawable.ic_media_next, "След.", nextPending)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Закрыть", closePendingIntent)
             .setStyle(
-                androidx.media.app.NotificationCompat.MediaStyle()
+                MediaNotificationCompat.MediaStyle()
                     .setShowActionsInCompactView(0, 1, 2)
             )
             .setOngoing(isPlaying)

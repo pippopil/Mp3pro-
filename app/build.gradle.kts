@@ -16,8 +16,8 @@ android {
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         val ciVersionName = System.getenv("VERSION_NAME")
 
-        versionCode = ciRunNumber ?: 21
-        versionName = ciVersionName ?: "1.0.0-beta21"
+        versionCode = ciRunNumber ?: 22
+        versionName = ciVersionName ?: "1.0.0-beta22"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled = true
@@ -81,11 +81,12 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3:1.3.0")
 
-    // Modern Jetpack Media3 (ExoPlayer + MediaSession)
+    // Modern Jetpack Media3 (ExoPlayer + MediaSession) & Legacy Media Compat
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.media:media:1.7.0")
 
     // Coil для загрузки обложек
     implementation("io.coil-kt:coil-compose:2.7.0")
