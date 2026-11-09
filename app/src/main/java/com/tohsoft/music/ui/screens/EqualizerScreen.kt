@@ -423,6 +423,11 @@ fun EqualizerScreen(
             .background(ColorPowerampBg)
             .statusBarsPadding()
             .navigationBarsPadding()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {} // Intentionally absorb all taps so they NEVER fall through to the player underneath
+            )
     ) {
         Column(
             modifier = Modifier
@@ -533,17 +538,20 @@ fun EqualizerScreen(
                                 }
                         ) {
                             Row(
-                                modifier = Modifier.padding(vertical = 6.dp),
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(icon, fontSize = 12.sp)
-                                Spacer(Modifier.width(4.dp))
+                                Text(icon, fontSize = 11.sp)
+                                Spacer(Modifier.width(3.dp))
                                 Text(
                                     text = label,
                                     color = if (isTabSelected) Color(0xFF040711) else ColorTextMuted,
                                     fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 11.sp
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1031,10 +1039,12 @@ fun EqualizerScreen(
                     }
                 }
 
-                // Center Column: Preset Dropdown Capsule & Reset
+                // Center Column: Preset Dropdown Capsule & Reset with Continuous Marquee
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
                 ) {
                     Text(
                         text = "ПРЕСЕТ",
@@ -1047,20 +1057,36 @@ fun EqualizerScreen(
                         shape = RoundedCornerShape(14.dp),
                         color = ColorPowerampCard,
                         border = BorderStroke(1.dp, Color(0x44FFFFFF)),
-                        modifier = Modifier.clickable { isPresetModalOpen = true }
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { isPresetModalOpen = true }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Text(
-                                text = activePreset,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .clipToBounds()
+                            ) {
+                                Text(
+                                    text = activePreset,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.basicMarquee(
+                                        iterations = Int.MAX_VALUE,
+                                        delayMillis = 800
+                                    )
+                                )
+                            }
                             Spacer(Modifier.width(4.dp))
                             Text("▾", color = ColorTurquoise, fontSize = 11.sp)
                         }
@@ -1070,7 +1096,14 @@ fun EqualizerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Text(currentSongGenre, color = ColorTurquoise, fontSize = 9.sp)
+                        Text(
+                            text = currentSongGenre,
+                            color = ColorTurquoise,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
                         Spacer(Modifier.width(4.dp))
                         Text(
                             text = "↺",
@@ -1081,9 +1114,9 @@ fun EqualizerScreen(
                     }
                 }
 
-                // Right: Two Rotary Knobs side-by-side
+                // Right: Two Compact Rotary Knobs side-by-side (Guaranteed visible and never pushed off-screen)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PowerampRotaryDial(
@@ -1091,7 +1124,7 @@ fun EqualizerScreen(
                         label = "Низк.",
                         displayValue = "$bassBoost%",
                         activeColor = ColorNeonGreen,
-                        sizeDp = 48,
+                        sizeDp = 42,
                         onValueChange = { frac ->
                             onBassBoostChange((frac * 100).toInt())
                         }
@@ -1102,7 +1135,7 @@ fun EqualizerScreen(
                         label = "Выс.",
                         displayValue = "$trebleLevel%",
                         activeColor = ColorNeonCyan,
-                        sizeDp = 48,
+                        sizeDp = 42,
                         onValueChange = { frac ->
                             onTrebleChange((frac * 100).toInt())
                         }

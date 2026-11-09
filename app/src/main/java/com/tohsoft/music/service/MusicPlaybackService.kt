@@ -52,6 +52,14 @@ class MusicPlaybackService : Service() {
                 val artist = intent.getStringExtra("extra_artist") ?: "На паузе"
                 showPlaybackNotification(title, artist, false)
             }
+            ACTION_TOGGLE_PLAY, ACTION_NEXT, ACTION_PREV -> {
+                // Прямое управление с экрана блокировки без разблокировки телефона
+                val cmdIntent = Intent(ACTION_MEDIA_COMMAND).apply {
+                    putExtra("command", action)
+                    setPackage(packageName)
+                }
+                sendBroadcast(cmdIntent)
+            }
         }
 
         return START_NOT_STICKY
@@ -84,17 +92,45 @@ class MusicPlaybackService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // Кнопки управления на экране блокировки без разблокировки
+        val prevPending = PendingIntent.getService(
+            this, 3,
+            Intent(this, MusicPlaybackService::class.java).apply { action = ACTION_PREV },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val playPausePending = PendingIntent.getService(
+            this, 4,
+            Intent(this, MusicPlaybackService::class.java).apply { action = ACTION_TOGGLE_PLAY },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val nextPending = PendingIntent.getService(
+            this, 5,
+            Intent(this, MusicPlaybackService::class.java).apply { action = ACTION_NEXT },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(title)
             .setContentText(artist)
-            .setSubText("MP3 Player Pro")
+            .setSubText("MP3 Player Pro • Lock Screen")
             .setContentIntent(openPendingIntent)
             .setDeleteIntent(deletePendingIntent) // Свайп вправо полностью закрывает приложение
+            .addAction(android.R.drawable.ic_media_previous, "Пред.", prevPending)
+            .addAction(
+                if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                if (isPlaying) "Пауза" else "Играть",
+                playPausePending
+            )
+            .addAction(android.R.drawable.ic_media_next, "След.", nextPending)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Закрыть", closePendingIntent)
-            .setOngoing(isPlaying) // Если на паузе — можно сразу смахнуть вправо
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setStyle(
+                androidx.media.app.NotificationCompat.MediaStyle()
+                    .setShowActionsInCompactView(0, 1, 2)
+            )
+            .setOngoing(isPlaying)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Полный доступ на экране блокировки без разблокировки
             .build()
 
         startForeground(NOTIFICATION_ID, notification)
@@ -104,10 +140,10 @@ class MusicPlaybackService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Управление воспроизведением",
+                "Управление воспроизведением (Lock Screen)",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Уведомление в выдвижной шторке для управления музыкой"
+                description = "Уведомление в шторке и на экране блокировки для управления музыкой"
                 setShowBadge(false)
             }
             val manager = getSystemService(NotificationManager::class.java)
@@ -117,7 +153,6 @@ class MusicPlaybackService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Если смахивают приложение из списка недавних задач — закрываем приложение
         try {
             val hideIsland = Intent(this, DynamicIslandOverlayService::class.java).apply {
                 this.action = DynamicIslandOverlayService.ACTION_HIDE
@@ -138,8 +173,12 @@ class MusicPlaybackService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_UPDATE_NOTIFICATION = "com.tohsoft.music.ACTION_UPDATE_NOTIFICATION"
         const val ACTION_PAUSE_NOTIFICATION = "com.tohsoft.music.ACTION_PAUSE_NOTIFICATION"
+        const val ACTION_TOGGLE_PLAY = "com.tohsoft.music.ACTION_TOGGLE_PLAY"
+        const val ACTION_PREV = "com.tohsoft.music.ACTION_PREV"
+        const val ACTION_NEXT = "com.tohsoft.music.ACTION_NEXT"
         const val ACTION_CLOSE = "com.tohsoft.music.ACTION_CLOSE"
         const val ACTION_EXIT_APP = "com.tohsoft.music.ACTION_EXIT_APP"
         const val ACTION_APP_SHUTDOWN = "com.tohsoft.music.ACTION_APP_SHUTDOWN"
+        const val ACTION_MEDIA_COMMAND = "com.tohsoft.music.ACTION_MEDIA_COMMAND"
     }
 }

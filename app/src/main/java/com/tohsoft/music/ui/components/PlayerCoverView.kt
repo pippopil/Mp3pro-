@@ -298,6 +298,11 @@ fun PlayerCoverView(
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color(0x2206B6D4))
                     .border(1.dp, Color(0x4406B6D4), RoundedCornerShape(10.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {} // Consume touches so they NEVER fall through to the cover beneath
+                    )
                     .padding(horizontal = 10.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -317,33 +322,39 @@ fun PlayerCoverView(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(Color(0x33FFFFFF))
-                            .clickable {
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = rememberRipple(bounded = true, radius = 12.dp)
+                            ) {
                                 val nextGain = (bassBoostGain - 10).coerceAtLeast(0)
                                 onBassBoostChange(nextGain)
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("-", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("-", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00C996))
-                            .clickable {
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = rememberRipple(bounded = true, radius = 12.dp)
+                            ) {
                                 val nextGain = (bassBoostGain + 10).coerceAtMost(100)
                                 onBassBoostChange(nextGain)
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("+", color = Color(0xFF090D1E), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("+", color = Color(0xFF090D1E), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
