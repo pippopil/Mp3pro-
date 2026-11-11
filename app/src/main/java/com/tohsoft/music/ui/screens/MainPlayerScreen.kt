@@ -134,7 +134,9 @@ fun MainPlayerScreen(
     onToggleLimiter: (Boolean) -> Unit = {},
     onTrebleChange: (Int) -> Unit = {},
     onRequestOverlayPermission: () -> Unit = {},
-    onPromptDeleteSong: (Song) -> Unit = {}
+    onPromptDeleteSong: (Song) -> Unit = {},
+    onConfirmDeleteSong: () -> Unit = {},
+    onDismissDeleteSong: () -> Unit = {}
 ) {
     val bgBrush = Brush.verticalGradient(
         listOf(ColorDarkBgTop, ColorDarkBgMid, ColorDarkBgBottom)
@@ -1076,7 +1078,8 @@ fun FullPlayerScreen(
     onSleepTimerClick: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onMenuClick: () -> Unit,
-    onRequestOverlayPermission: () -> Unit = {}
+    onRequestOverlayPermission: () -> Unit = {},
+    onPromptDeleteSong: (Song) -> Unit = {}
 ) {
     val nebulaBrush = Brush.verticalGradient(
         listOf(
