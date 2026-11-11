@@ -253,7 +253,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun bindAudioSession(sessionId: Int) {
         if (sessionId > 0 && sessionId != lastBoundSessionId) {
             lastBoundSessionId = sessionId
-            equalizerManager?.attachAudioSession(sessionId)
+            val context = getApplication<Application>()
+            equalizerManager?.registerAudioSessionId(sessionId, context)
 
             equalizerManager?.applyPreset(_uiState.value.activeEqPreset)
             equalizerManager?.setBassBoostStrength(_uiState.value.bassBoost)

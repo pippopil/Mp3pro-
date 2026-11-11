@@ -1,5 +1,8 @@
 package com.tohsoft.music.audio
 
+import android.content.Context
+import android.content.Intent
+import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
@@ -34,6 +37,13 @@ class EqualizerManager(private var audioSessionId: Int) {
     private var virtualizer: Virtualizer? = null
     private var presetReverb: PresetReverb? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+
+    // System-wide Android AudioEffect instances applied to Global Audio Session 0
+    private var systemEqualizer: Equalizer? = null
+    private var systemBassBoost: BassBoost? = null
+    private var systemVirtualizer: Virtualizer? = null
+    var isSystemWideAudioEffectEnabled: Boolean = true
+    private var registeredContext: Context? = null
 
     var isEnabled: Boolean = true
         private set
@@ -145,6 +155,117 @@ class EqualizerManager(private var audioSessionId: Int) {
         }
     }
 
+    /**
+     * Registers player AudioSessionId with Android AudioEffect API.
+     * 1. Broadcasts AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION to Android OS.
+     * 2. Re-attaches Equalizer, BassBoost, Virtualizer to this session.
+     * 3. Initializes system-level AudioEffects on global session 0 so BassBoost and Virtualizer
+     *    apply across the entire Android system (YouTube, browser, apps, automotive IVI).
+     */
+    fun registerAudioSessionId(newSessionId: Int, context: Context? = null): Boolean {
+        if (context != null) {
+            registeredContext = context.applicationContext
+        }
+
+        // Unregister previous session if changing
+        if (audioSessionId > 0 && audioSessionId != newSessionId && registeredContext != null) {
+            try {
+                val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId)
+                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, registeredContext!!.packageName)
+                }
+                registeredContext!!.sendBroadcast(closeIntent)
+            } catch (ignored: Exception) {}
+        }
+
+        audioSessionId = newSessionId
+        attachAudioSession(newSessionId)
+
+        // Broadcast ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION to Android Audio Framework
+        if (registeredContext != null && newSessionId > 0) {
+            try {
+                val openIntent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, newSessionId)
+                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, registeredContext!!.packageName)
+                    putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+                }
+                registeredContext!!.sendBroadcast(openIntent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Initialize system-level AudioEffect instances on global output mix (Session 0)
+        initSystemWideEffects()
+        return true
+    }
+
+    /** Overloaded convenience method for registerAudioSessionId */
+    fun registerAudioSessionId(context: Context, newSessionId: Int): Boolean {
+        return registerAudioSessionId(newSessionId, context)
+    }
+
+    /** Unregisters AudioSessionId from Android AudioEffect framework */
+    fun unregisterAudioSessionId(context: Context? = null) {
+        val ctx = context?.applicationContext ?: registeredContext
+        if (ctx != null && audioSessionId > 0) {
+            try {
+                val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId)
+                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
+                }
+                ctx.sendBroadcast(closeIntent)
+            } catch (ignored: Exception) {}
+        }
+    }
+
+    private fun initSystemWideEffects() {
+        if (!isSystemWideAudioEffectEnabled) return
+        try {
+            if (systemEqualizer == null) {
+                systemEqualizer = Equalizer(0, 0).apply {
+                    enabled = isEnabled
+                }
+            }
+            if (systemBassBoost == null) {
+                systemBassBoost = BassBoost(0, 0).apply {
+                    enabled = isEnabled && currentBassBoostPercent > 0
+                }
+            }
+            if (systemVirtualizer == null) {
+                systemVirtualizer = Virtualizer(0, 0).apply {
+                    enabled = isEnabled
+                }
+            }
+            applySystemBassBoost()
+            applySystemVirtualizer()
+        } catch (e: Exception) {
+            // Handled safely if session 0 restricted on certain OEM ROMs
+        }
+    }
+
+    private fun applySystemBassBoost() {
+        if (!isSystemWideAudioEffectEnabled) return
+        val strength = (currentBassBoostPercent * 10).toShort()
+        try {
+            if (systemBassBoost?.strengthSupported == true) {
+                systemBassBoost?.enabled = isEnabled && currentBassBoostPercent > 0
+                systemBassBoost?.setStrength(strength)
+            }
+        } catch (ignored: Exception) {}
+    }
+
+    private fun applySystemVirtualizer() {
+        if (!isSystemWideAudioEffectEnabled) return
+        val strength = (currentVirtualizerPercent * 10).toShort()
+        try {
+            if (systemVirtualizer?.strengthSupported == true) {
+                systemVirtualizer?.enabled = isEnabled
+                systemVirtualizer?.setStrength(strength)
+            }
+        } catch (ignored: Exception) {}
+    }
+
     private fun initEffects() {
         try {
             if (audioSessionId >= 0) {
@@ -233,6 +354,7 @@ class EqualizerManager(private var audioSessionId: Int) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        applySystemBassBoost()
         // Update hardware bands with dynamic anti-pumping headroom
         applyBandsToHardware()
     }
@@ -246,6 +368,7 @@ class EqualizerManager(private var audioSessionId: Int) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        applySystemVirtualizer()
     }
 
     fun setLoudnessGain(gainDb: Int) {
@@ -342,6 +465,14 @@ class EqualizerManager(private var audioSessionId: Int) {
             bassBoost?.release()
             virtualizer?.release()
             presetReverb?.release()
+            try {
+                systemEqualizer?.release()
+                systemBassBoost?.release()
+                systemVirtualizer?.release()
+            } catch (ignored: Exception) {}
+            systemEqualizer = null
+            systemBassBoost = null
+            systemVirtualizer = null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 loudnessEnhancer?.release()
             }
