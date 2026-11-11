@@ -212,6 +212,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onCloseSmartShare = { viewModel.openSmartShareDialog(false) },
                     onToggleVisibleTab = { tab -> viewModel.toggleVisibleTab(tab) },
                     onClearStatusToast = { viewModel.clearStatusToast() },
+                    onPromptDeleteSong = { song -> viewModel.promptDeleteSong(song) },
+                    onConfirmDeleteSong = { viewModel.confirmDeleteSong() },
+                    onDismissDeleteSong = { viewModel.dismissDeleteDialog() },
                     onFeedback = {
                         try {
                             val emailIntent = Intent(Intent.ACTION_SENDTO).apply {

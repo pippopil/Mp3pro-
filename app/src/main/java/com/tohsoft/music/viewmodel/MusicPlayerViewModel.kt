@@ -78,6 +78,8 @@ data class PlayerUiState(
     val isScanningStorage: Boolean = false,
     val statusToastMessage: String? = null,
     val rememberPlayback: Boolean = true,
+    val songToDelete: Song? = null,
+    val isDeleteDialogOpen: Boolean = false,
     val lockScreenPlayer: Boolean = false,
     val fadeInOut: Boolean = false,
     val shakeToSkip: Boolean = false,
@@ -1092,11 +1094,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val destFile = File(musicDir, "$safeName.mp3")
 
                 val candidateUrls = mutableListOf<String>()
-                if (audioUrl.isNotBlank()) candidateUrls.add(audioUrl)
-                candidateUrls.add("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3")
-                candidateUrls.add("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3")
-                candidateUrls.add("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
-                candidateUrls.add("https://upload.wikimedia.org/wikipedia/commons/e/ec/Ghostrifter_Official_-_Hot_Coffee.mp3")
+                if (audioUrl.isNotBlank() && audioUrl.startsWith("http")) {
+                    candidateUrls.add(audioUrl)
+                }
 
                 val downloadClient = coverArtRepository.httpClient.newBuilder()
                     .followRedirects(true)
@@ -1193,6 +1193,57 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     isOnlineSearchOpen = false
                 )
             }
+        }
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // УДАЛЕНИЕ ТРЕКОВ ИЗ ПЛЕЕРА И ПАМЯТИ УСТРОЙСТВА
+    // --------------------------------------------------------------------------------------------
+    fun promptDeleteSong(song: Song) {
+        _uiState.update { it.copy(songToDelete = song, isDeleteDialogOpen = true, isSongMenuOpen = false) }
+    }
+
+    fun dismissDeleteDialog() {
+        _uiState.update { it.copy(songToDelete = null, isDeleteDialogOpen = false) }
+    }
+
+    fun confirmDeleteSong() {
+        val song = _uiState.value.songToDelete ?: return
+        dismissDeleteDialog()
+
+        if (_uiState.value.currentSong?.id == song.id) {
+            nextSong()
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val uri = song.contentUri
+                if (uri.scheme == "file" || uri.path?.startsWith("/") == true) {
+                    val file = File(uri.path ?: "")
+                    if (file.exists()) file.delete()
+                } else {
+                    try {
+                        context.contentResolver.delete(uri, null, null)
+                    } catch (ignored: Exception) {}
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        _uiState.update { state ->
+            val updatedSongs = state.songs.filter { it.id != song.id }
+            val updatedFiltered = state.filteredSongs.filter { it.id != song.id }
+            val updatedPlaylists = state.userPlaylists.map { pl ->
+                pl.copy(trackIds = pl.trackIds.filter { it != song.id })
+            }
+            state.copy(
+                songs = updatedSongs,
+                filteredSongs = updatedFiltered,
+                userPlaylists = updatedPlaylists,
+                statusToastMessage = "✓ Трек «" + song.title + "» удален"
+            )
         }
     }
 

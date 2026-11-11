@@ -133,7 +133,10 @@ fun MainPlayerScreen(
     onPreampChange: (Float) -> Unit = {},
     onToggleLimiter: (Boolean) -> Unit = {},
     onTrebleChange: (Int) -> Unit = {},
-    onRequestOverlayPermission: () -> Unit = {}
+    onRequestOverlayPermission: () -> Unit = {},
+    onPromptDeleteSong: (Song) -> Unit = {},
+    onConfirmDeleteSong: () -> Unit = {},
+    onDismissDeleteSong: () -> Unit = {}
 ) {
     val bgBrush = Brush.verticalGradient(
         listOf(ColorDarkBgTop, ColorDarkBgMid, ColorDarkBgBottom)
@@ -277,7 +280,8 @@ fun MainPlayerScreen(
                     onSleepTimerClick = onSleepTimerClick,
                     onOpenEqualizer = onOpenEqualizer,
                     onMenuClick = { onSongMenuClick(song) },
-                    onRequestOverlayPermission = onRequestOverlayPermission
+                    onRequestOverlayPermission = onRequestOverlayPermission,
+                    onPromptDeleteSong = onPromptDeleteSong
                 )
             }
         }
@@ -361,7 +365,8 @@ fun MainPlayerScreen(
                 onPlay = { onSongClick(uiState.selectedSongForMenu); onCloseSongMenu() },
                 onOpenEqualizer = { onOpenEqualizer(); onCloseSongMenu() },
                 onSearchCover = { onSearchCover(); onCloseSongMenu() },
-                onProperties = { onPropertiesClick(uiState.selectedSongForMenu); onCloseSongMenu() }
+                onProperties = { onPropertiesClick(uiState.selectedSongForMenu); onCloseSongMenu() },
+                onDelete = onPromptDeleteSong
             )
         }
 
@@ -432,6 +437,39 @@ fun MainPlayerScreen(
             )
         }
 
+        // Track Delete Confirmation Dialog
+        if (uiState.isDeleteDialogOpen && uiState.songToDelete != null) {
+            val songToDelete = uiState.songToDelete
+            AlertDialog(
+                onDismissRequest = onDismissDeleteSong,
+                containerColor = Color(0xFF131D33),
+                title = {
+                    Text("Удалить трек?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                },
+                text = {
+                    Text(
+                        "Вы действительно хотите удалить «" + songToDelete.title + "» (" + songToDelete.artist + ") из медиатеки и памяти устройства?",
+                        color = ColorTextMuted,
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = onConfirmDeleteSong,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Удалить", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissDeleteSong) {
+                        Text("Отмена", color = Color.White)
+                    }
+                }
+            )
+        }
+
         // Online Music Search & Download Modal Dialog
         if (uiState.isOnlineSearchOpen) {
             OnlineMusicSearchModal(
@@ -462,63 +500,92 @@ fun TopTabsBar(
         color = Color(0xFF090D1E),
         modifier = Modifier.fillMaxWidth().statusBarsPadding()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val tabs = listOf("ПЕСНИ", "ПАПКИ", "ПЛЕЙЛИСТЫ", "НАСТРОЙКИ")
-            tabs.forEachIndexed { index, title ->
-                val isSelected = activeTab == index
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable { onTabSelected(index) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Верхняя полоса: брендинг плеера и быстрые ярлыки (отделены от вкладок)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = title,
-                        color = if (isSelected) ColorTurquoise else ColorTextMuted,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = if (title == "ПЛЕЙЛИСТЫ") 11.sp else 12.sp,
-                        maxLines = 1
+                        text = "MP3 PLAYER",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.5.sp
                     )
-                    if (isSelected) {
-                        Box(
-                            Modifier
-                                .padding(top = 4.dp)
-                                .width(36.dp)
-                                .height(3.dp)
-                                .background(ColorTurquoise, RoundedCornerShape(2.dp))
-                        )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = "PRO",
+                        color = ColorTurquoise,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Ярлык Яндекс Музыка
+                    IconButton(
+                        onClick = onOpenYandexModal,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(Color(0x22FFCC00), CircleShape)
+                    ) {
+                        Text("🟡", fontSize = 13.sp)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    // Ярлык 10-полосный эквалайзер
+                    IconButton(
+                        onClick = onOpenEqualizer,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(Color(0x2200C996), CircleShape)
+                    ) {
+                        Text("🎚", fontSize = 13.sp)
                     }
                 }
             }
-
-            // Quick Shortcut: Yandex Music
-            IconButton(
-                onClick = onOpenYandexModal,
+            // Полноширинная строка 4 вкладок без наездов на иконки и перекрытий
+            Row(
                 modifier = Modifier
-                    .size(34.dp)
-                    .background(Color(0x22FFCC00), CircleShape)
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("🟡", fontSize = 14.sp)
-            }
-
-            Spacer(Modifier.width(3.dp))
-
-            // Quick Shortcut: 10-Band EQ
-            IconButton(
-                onClick = onOpenEqualizer,
-                modifier = Modifier
-                    .size(34.dp)
-                    .background(Color(0x2200C996), CircleShape)
-            ) {
-                Text("🎚", fontSize = 14.sp)
+                val tabs = listOf("ПЕСНИ", "ПАПКИ", "ПЛЕЙЛИСТЫ", "НАСТРОЙКИ")
+                tabs.forEachIndexed { index, title ->
+                    val isSelected = activeTab == index
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable { onTabSelected(index) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = title,
+                            color = if (isSelected) ColorTurquoise else ColorTextMuted,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 12.sp,
+                            maxLines = 1
+                        )
+                        if (isSelected) {
+                            Box(
+                                Modifier
+                                    .padding(top = 4.dp)
+                                    .width(42.dp)
+                                    .height(3.dp)
+                                    .background(ColorTurquoise, RoundedCornerShape(2.dp))
+                            )
+                        } else {
+                            Spacer(Modifier.height(7.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -1011,7 +1078,10 @@ fun FullPlayerScreen(
     onSleepTimerClick: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onMenuClick: () -> Unit,
-    onRequestOverlayPermission: () -> Unit = {}
+    onRequestOverlayPermission: () -> Unit = {},
+    onPromptDeleteSong: (Song) -> Unit = {},
+    onConfirmDeleteSong: () -> Unit = {},
+    onDismissDeleteSong: () -> Unit = {}
 ) {
     val nebulaBrush = Brush.verticalGradient(
         listOf(
@@ -1125,15 +1195,11 @@ fun FullPlayerScreen(
             )
         }
 
-        // SAMSUNG DOLBY ATMOS & SOUND ENHANCEMENT ROW
+        // Центрированный бейдж DOLBY ATMOS & Hi-Res
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.Center
         ) {
-            // Dolby Atmos Badge
             Surface(
                 color = Color(0xFF101B38),
                 shape = RoundedCornerShape(12.dp),
@@ -1141,56 +1207,79 @@ fun FullPlayerScreen(
                 modifier = Modifier.clickable { onOpenEqualizer() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("DOLBY ATMOS", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Text("•", color = ColorTextMuted, fontSize = 9.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Hi-Res 24-bit 96kHz", color = Color.White, fontSize = 9.sp)
+                    Text("DOLBY ATMOS", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("•", color = ColorTextMuted, fontSize = 10.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Hi-Res 24-bit 96kHz", color = Color.White, fontSize = 10.sp)
                 }
             }
-
-            Spacer(Modifier.width(6.dp))
-
-            // Dynamic Island Camera Pill with Frog Mascot
+        }
+        Spacer(Modifier.height(4.dp))
+        // 3 сбалансированные кнопки в один ряд без переносов текста (Островок, Обложка, Удалить)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Кнопка Островок
             Surface(
                 color = Color(0xFF142B1E),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, Color(0xFF22C55E)),
-                modifier = Modifier.clickable { onRequestOverlayPermission() }
+                modifier = Modifier.weight(1f).clickable { onRequestOverlayPermission() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text("🐸", fontSize = 10.sp)
-                    Spacer(Modifier.width(3.dp))
-                    Text("Островок", color = Color(0xFF22C55E), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("🐸", fontSize = 12.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Островок", color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
-
-            Spacer(Modifier.width(6.dp))
-
-            // Online HD Cover Search Button
+            // Кнопка Обложка
             Surface(
                 color = Color(0xFF132247),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, Color(0x444A689B)),
-                modifier = Modifier.clickable { onSearchCover() }
+                modifier = Modifier.weight(1f).clickable { onSearchCover() }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text(if (isSearchingCover) "⏳" else "🔍", fontSize = 10.sp)
-                    Spacer(Modifier.width(3.dp))
-                    Text("HD Обложка", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                    Text(if (isSearchingCover) "⏳" else "🔍", fontSize = 12.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Обложка", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                }
+            }
+            // Кнопка Удалить трек прямо из плеера
+            Surface(
+                color = Color(0xFF2A1418),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0x66EF4444)),
+                modifier = Modifier.weight(1f).clickable { onPromptDeleteSong(song) }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text("🗑", fontSize = 12.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Удалить", color = Color(0xFFEF4444), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
         }
-
+        
         // Cover Search Notification Banner if present
         if (coverSearchMessage.isNotBlank()) {
             Text(
@@ -1797,7 +1886,8 @@ fun SongContextMenuModal(
     onPlay: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onSearchCover: () -> Unit,
-    onProperties: () -> Unit
+    onProperties: () -> Unit,
+    onDelete: (Song) -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1812,16 +1902,15 @@ fun SongContextMenuModal(
             MenuItem(icon = "▶", title = "Играть", onClick = onPlay)
             MenuItem(icon = "🔍", title = "Найти HD обложку онлайн", onClick = onSearchCover)
             MenuItem(icon = "🎚", title = "Звуковые эффекты и эквалайзер", onClick = onOpenEqualizer)
-            MenuItem(icon = "⏭", title = "Играть дальше", onClick = onDismiss)
             MenuItem(icon = "➕", title = "Добавить в очередь", onClick = onDismiss)
-            MenuItem(icon = "♡", title = "Добавить в избранное", onClick = onDismiss)
             MenuItem(icon = "ℹ", title = "Свойства трека", onClick = onProperties)
+            MenuItem(icon = "🗑", title = "Удалить трек из плеера", textColor = Color(0xFFEF4444), onClick = { onDelete(song); onDismiss() })
         }
     }
 }
 
 @Composable
-fun MenuItem(icon: String, title: String, onClick: () -> Unit) {
+fun MenuItem(icon: String, title: String, textColor: Color = Color.White, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3017,7 +3106,7 @@ fun OnlineMusicSearchModal(
     isSearching: Boolean = false,
     searchResults: List<com.tohsoft.music.data.CoverArtRepository.OnlineMusicTrack> = emptyList(),
     searchError: String? = null,
-    onDownload: (title: String, artist: String, url: String, genre: String, coverUrl: String) -> Unit,
+    onDownload: (title: String, artist: String, genre: String, audioUrl: String, coverUrl: String) -> Unit,
     downloadProgress: Int,
     downloadMessage: String
 ) {
@@ -3246,7 +3335,7 @@ fun OnlineMusicSearchModal(
                             Spacer(Modifier.width(8.dp))
                             Button(
                                 onClick = {
-                                    onDownload(track.title, track.artist, track.audioUrl, track.genre, track.coverUrl)
+                                    onDownload(track.title, track.artist, track.genre, track.audioUrl, track.coverUrl)
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
                                 shape = RoundedCornerShape(8.dp),
@@ -3344,7 +3433,7 @@ fun OnlineMusicSearchModal(
                             Spacer(Modifier.width(8.dp))
                             Button(
                                 onClick = {
-                                    onDownload(title, artist, streamUrl, genre, coverUrl)
+                                    onDownload(title, artist, genre, streamUrl, coverUrl)
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
                                 shape = RoundedCornerShape(8.dp),
