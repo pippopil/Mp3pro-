@@ -1236,7 +1236,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             val updatedSongs = state.songs.filter { it.id != song.id }
             val updatedFiltered = state.filteredSongs.filter { it.id != song.id }
             val updatedPlaylists = state.userPlaylists.map { pl ->
-                pl.copy(trackIds = pl.trackIds.filter { it != song.id })
+                pl.copy(songIds = pl.songIds.filter { it != song.id })
             }
             state.copy(
                 songs = updatedSongs,
