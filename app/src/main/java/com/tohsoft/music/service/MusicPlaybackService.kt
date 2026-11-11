@@ -14,6 +14,13 @@ import com.tohsoft.music.MainActivity
 
 class MusicPlaybackService : Service() {
 
+    interface MediaControlListener {
+        fun onTogglePlayPause()
+        fun onNext()
+        fun onPrev()
+        fun onCloseApp()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -53,10 +60,32 @@ class MusicPlaybackService : Service() {
                 val artist = intent.getStringExtra("extra_artist") ?: "На паузе"
                 showPlaybackNotification(title, artist, false)
             }
-            ACTION_TOGGLE_PLAY, ACTION_NEXT, ACTION_PREV -> {
-                // Прямое управление с экрана блокировки без разблокировки телефона
+            ACTION_TOGGLE_PLAY -> {
+                try {
+                    mediaControlListener?.onTogglePlayPause()
+                } catch (ignored: Exception) {}
                 val cmdIntent = Intent(ACTION_MEDIA_COMMAND).apply {
-                    putExtra("command", action)
+                    putExtra("command", ACTION_TOGGLE_PLAY)
+                    setPackage(packageName)
+                }
+                sendBroadcast(cmdIntent)
+            }
+            ACTION_NEXT -> {
+                try {
+                    mediaControlListener?.onNext()
+                } catch (ignored: Exception) {}
+                val cmdIntent = Intent(ACTION_MEDIA_COMMAND).apply {
+                    putExtra("command", ACTION_NEXT)
+                    setPackage(packageName)
+                }
+                sendBroadcast(cmdIntent)
+            }
+            ACTION_PREV -> {
+                try {
+                    mediaControlListener?.onPrev()
+                } catch (ignored: Exception) {}
+                val cmdIntent = Intent(ACTION_MEDIA_COMMAND).apply {
+                    putExtra("command", ACTION_PREV)
                     setPackage(packageName)
                 }
                 sendBroadcast(cmdIntent)
@@ -170,6 +199,7 @@ class MusicPlaybackService : Service() {
     }
 
     companion object {
+        var mediaControlListener: MediaControlListener? = null
         const val CHANNEL_ID = "mp3_player_playback_channel"
         const val NOTIFICATION_ID = 1001
         const val ACTION_UPDATE_NOTIFICATION = "com.tohsoft.music.ACTION_UPDATE_NOTIFICATION"

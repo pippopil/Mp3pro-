@@ -542,6 +542,7 @@ fun SongsTabContent(
     onSongClick: (Song) -> Unit,
     onSongMenuClick: (Song) -> Unit,
     onOpenYandexModal: () -> Unit,
+    onAddToPlaylist: (Song) -> Unit = {},
     onShuffleAll: () -> Unit
 ) {
     val genreChips = listOf("Все", "Drum & Bass", "Techno", "Rock", "Synthwave", "Trap", "Acoustic", "Lo-Fi", "Локальные")
@@ -2655,8 +2656,7 @@ fun PlaylistsTabContent(
                     modifier = Modifier.fillMaxSize().padding(top = 40.dp),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    Text("В этом плейлисте пока нет песен.
-Добавляйте треки кнопкой «+» во вкладках «ПЕСНИ» или «ПАПКИ»!", color = ColorTextMuted, textAlign = TextAlign.Center, fontSize = 12.sp)
+                    Text("В этом плейлисте пока нет песен. Добавляйте треки кнопкой «+» во вкладках «ПЕСНИ» или «ПАПКИ»!", color = ColorTextMuted, textAlign = TextAlign.Center, fontSize = 12.sp)
                 }
             } else {
                 LazyColumn(

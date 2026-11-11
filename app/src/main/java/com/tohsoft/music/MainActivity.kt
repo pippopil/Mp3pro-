@@ -20,6 +20,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import com.tohsoft.music.service.DynamicIslandOverlayService
 import androidx.compose.material3.darkColorScheme
@@ -60,11 +62,55 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         checkAndRequestPermissions()
 
-        val filter = IntentFilter(MusicPlaybackService.ACTION_APP_SHUTDOWN)
+        val filter = IntentFilter().apply {
+            addAction(MusicPlaybackService.ACTION_APP_SHUTDOWN)
+            addAction(MusicPlaybackService.ACTION_MEDIA_COMMAND)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(shutdownReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(shutdownReceiver, filter)
+        }
+
+        // Прямой слушатель кнопок из шторки уведомлений и экрана блокировки
+        MusicPlaybackService.mediaControlListener = object : MusicPlaybackService.MediaControlListener {
+            override fun onTogglePlayPause() {
+                runOnUiThread { viewModel.togglePlayPause() }
+            }
+            override fun onNext() {
+                runOnUiThread { viewModel.nextSong() }
+            }
+            override fun onPrev() {
+                runOnUiThread { viewModel.prevSong() }
+            }
+            override fun onCloseApp() {
+                runOnUiThread {
+                    finishAffinity()
+                    System.exit(0)
+                }
+            }
+        }
+
+        // Непрерывная синхронизация состояния воспроизведения со шторкой уведомлений
+        lifecycleScope.launch {
+            viewModel.uiState.collect { state ->
+                val song = state.currentSong
+                if (song != null) {
+                    val notifIntent = Intent(this@MainActivity, MusicPlaybackService::class.java).apply {
+                        action = if (state.isPlaying) MusicPlaybackService.ACTION_UPDATE_NOTIFICATION else MusicPlaybackService.ACTION_PAUSE_NOTIFICATION
+                        putExtra("extra_title", song.title)
+                        putExtra("extra_artist", song.artist)
+                        putExtra("extra_is_playing", state.isPlaying)
+                    }
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(notifIntent)
+                        } else {
+                            startService(notifIntent)
+                        }
+                    } catch (ignored: Exception) {}
+                }
+            }
         }
 
         setContent {
@@ -262,8 +308,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private val shutdownReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == MusicPlaybackService.ACTION_APP_SHUTDOWN) {
-                finishAffinity()
+            when (intent?.action) {
+                MusicPlaybackService.ACTION_APP_SHUTDOWN -> {
+                    finishAffinity()
+                }
+                MusicPlaybackService.ACTION_MEDIA_COMMAND -> {
+                    when (intent.getStringExtra("command")) {
+                        MusicPlaybackService.ACTION_TOGGLE_PLAY -> viewModel.togglePlayPause()
+                        MusicPlaybackService.ACTION_NEXT -> viewModel.nextSong()
+                        MusicPlaybackService.ACTION_PREV -> viewModel.prevSong()
+                    }
+                }
             }
         }
     }
