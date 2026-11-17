@@ -39,16 +39,46 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var accelerometer: Sensor? = null
     private var lastShakeTimestamp: Long = 0
 
+    private val allFilesPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (com.tohsoft.music.data.scanner.StorageScanner.hasManageExternalStorage() ||
+            com.tohsoft.music.data.scanner.StorageScanner.hasAudioScanPermission(this)
+        ) {
+            viewModel.rescanStorage()
+        }
+    }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val audioGranted = permissions[Manifest.permission.READ_MEDIA_AUDIO] ?: false
         val storageGranted = permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?: false
 
-        if (audioGranted || storageGranted) {
+        if (audioGranted || storageGranted || com.tohsoft.music.data.scanner.StorageScanner.hasManageExternalStorage()) {
             viewModel.loadSongs()
         } else {
-            Toast.makeText(this, "Требуется доступ к аудиофайлам для воспроизведения", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Требуется READ_MEDIA_AUDIO или MANAGE_EXTERNAL_STORAGE для сканирования Music", Toast.LENGTH_LONG).show()
+            requestAllFilesAccessIfNeeded()
+        }
+    }
+
+    private fun requestAllFilesAccessIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Toast.makeText(this, "На Android ниже 11 достаточно стандартного доступа к памяти", Toast.LENGTH_SHORT).show()
+            viewModel.refreshStoragePermissions()
+            return
+        }
+        val intent = com.tohsoft.music.data.scanner.StorageScanner.buildManageAllFilesIntent(this)
+        if (intent != null) {
+            try {
+                allFilesPermissionLauncher.launch(intent)
+            } catch (_: Exception) {
+                Toast.makeText(this, "Откройте Настройки -> Приложения -> Спец. доступ -> Все файлы", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            Toast.makeText(this, "✓ Доступ ко всем файлам (MANAGE_EXTERNAL_STORAGE) уже разрешен", Toast.LENGTH_SHORT).show()
+            viewModel.refreshStoragePermissions()
         }
     }
 
@@ -202,6 +232,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.downloadOnlineSong(title, artist, genre, url, cover)
                     },
                     onRescanStorage = { viewModel.rescanStorage() },
+                    onOpenStorageScanner = { viewModel.openStorageScanner(true) },
+                    onCloseStorageScanner = { viewModel.openStorageScanner(false) },
+                    onRequestAudioPermission = { checkAndRequestPermissions() },
+                    onRequestAllFilesPermission = { requestAllFilesAccessIfNeeded() },
+                    onSaveTrackMetadata = { id, title, artist, album, genre, notes, tags ->
+                        viewModel.saveTrackMetadataAndTags(id, title, artist, album, genre, notes, tags)
+                    },
+                    onSelectTagFilter = { tag -> viewModel.setTagFilter(tag) },
+                    onOpenAccountsModal = { viewModel.openAccountsModal(true) },
+                    onCloseAccountsModal = { viewModel.openAccountsModal(false) },
+                    onConnectAccount = { providerId, credential, customLabel ->
+                        viewModel.connectStreamingAccount(providerId, credential, customLabel)
+                    },
+                    onSelectActiveAccount = { accId -> viewModel.selectActiveAccount(accId) },
+                    onRemoveAccount = { accId -> viewModel.removeStreamingAccount(accId) },
                     onOpenBlacklistFolders = { viewModel.openBlacklistFoldersDialog(true) },
                     onCloseBlacklistFolders = { viewModel.openBlacklistFoldersDialog(false) },
                     onToggleBlacklistFolder = { folder -> viewModel.toggleBlacklistFolder(folder) },
@@ -258,6 +303,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
+        viewModel.refreshStoragePermissions()
         accelerometer?.let {
             sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }

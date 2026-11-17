@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Разрешения для работы фонового аудио на Android 14+ (API 34) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -12,6 +13,11 @@
 
     <!-- Разрешение чтения музыки для Android 13+ (API 33) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- Полный доступ к файлам (Android 11+) для рекурсивного сканирования /Music и USB-накопителей Changan -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <!-- Разрешение для старых Android (<= 12) -->
     <uses-permission

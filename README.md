@@ -1,7 +1,7 @@
 # 🎵 MP3 Player Pro — Modern Android 14/15 Audiophile Edition
 
 [![Android 14/15 Ready](https://img.shields.io/badge/Target%20SDK-34%20(Android%2014%2F15)-00C996?style=for-the-badge&logo=android)](https://github.com/pippopil/Mp3pro-)
-[![Version](https://img.shields.io/badge/Release-v1.0.0--beta20-0284C7?style=for-the-badge&logo=github)](https://github.com/pippopil/Mp3pro-/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.0--beta12-0284C7?style=for-the-badge&logo=github)](https://github.com/pippopil/Mp3pro-/releases)
 [![Jetpack Media3](https://img.shields.io/badge/Audio%20Engine-Jetpack%20Media3%20ExoPlayer-38BDF8?style=for-the-badge)](https://developer.android.com/media/media3)
 [![Poweramp-Style EQ](https://img.shields.io/badge/Equalizer-10--Band%20%2B%20Parametric%20PRO-F59E0B?style=for-the-badge)](https://github.com/pippopil/Mp3pro-)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20%2B%20Material%203-8B5CF6?style=for-the-badge&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
@@ -75,63 +75,47 @@ MP3 Player Pro умеет работать как **системный звук�
 * 3D Стекло, Неоновая пульсирующая Аура и классический Постер.
 * **Правило «Без чужих лиц»:** если у трека нет обложки, приложение **никогда не вставляет фотографии других артистов**. Вместо этого генерируется оригинальная нейтральная темная обложка с концентрическими дорожками и спектрограммой.
 
-### 9. 📥 Онлайн-поиск, скачивание и автоподгрузка HD-обложек (MusicBrainz + iTunes API)
-* Полнотекстовый поиск и загрузка треков в IndexedDB (`audioCacheService.ts`) с интеллектуальным парсингом тегов (`Artist - Title`) без заглушек `<unknown>`.
-* **Интеграция с MusicBrainz Cover Art Archive & iTunes Metadata API:** при отсутствии обложки у скачанного или локального трека система автоматически запрашивает официальные обложки альбомов высокого разрешения (**500x500 – 1200x1200**) и обновляет UI плеера и локальный кеш IndexedDB.
-* Индексированное хранилище **IndexedDB (`MP3PlayerPro_AudioStorage`)** с индексом артистов (`getCachedTracksByArtist`) для мгновенной выборки треков конкретного исполнителя.
-* Живая визуализация: подключение к CDN, буферизация 320 kbps MP3 фреймов, запись в память и вшивание ID3-тегов.
-
-### 10. ✨ Умные плейлисты (Smart Playlists) на базе Web Audio API
-* **Спектральный анализ аудиопотока (`smartPlaylistService.ts`):** декодирование PCM через `AudioContext.decodeAudioData`, автокорреляционный расчёт темпа (**BPM**), оценка танцевальности (**Danceability %**), среднеквадратичной энергии (**RMS Energy %**) и жанровых признаков.
-* **4 готовых интеллектуальных профиля:**
-  * ⚡ **Драйв и Тренировка** (`BPM ≥ 120`, высокая энергия `≥ 65%`)
-  * 🕺 **Клубный Дэнс & Вечеринка** (`115–138 BPM`, танцевальность `≥ 70%`)
-  * 🌙 **Ночной Чилл и Релакс** (`BPM ≤ 112`, мягкая акустика)
-  * 🚗 **Night Drive (Changan UNI-S)** (плотный саб-бас и дорожная динамика `118–132 BPM`)
-* Сохранение сгенерированных подборок как полноценных плейлистов в локальном состоянии (`localStorage`) в 1 клик.
-
-### 11. 🎧 MediaSession API, Canvas-визуализатор и системный Android AudioEffect API
-* **MediaSession API & Экран блокировки:** полная синхронизация метаданных (`title`, `artist`, `album`, `artwork`) и обработчиков `play` / `pause` / `nexttrack` / `previoustrack` со шторкой уведомлений и экраном блокировки Android.
-* **3 режима Canvas-визуализатора (`AudioEngineTestbed`):** переключение между частотными столбиками (**Bars**), осциллографом (**Waveform**) и круговым спектром (**Circular**).
-* **Системный AudioEffect API (`EqualizerManager.kt`):** регистрация `AudioSessionId` плеера (или глобальной микс-сессии `0`) для применения **10-полосного EQ**, **BassBoost**, **Virtualizer** и **LoudnessEnhancer** на уровне всей ОС Android.
+### 9. 📥 Онлайн-поиск и скачивание музыки с живой анимацией
+* Полнотекстовый поиск по глобальному каталогу треков.
+* Живая визуализация: подключение к CDN, буферизация 320 kbps MP3 фреймов со спектральным эквалайзером, запись в память и вшивание ID3-тегов.
 
 ---
 
-## 🔌 Мультиплатформенный Стриминг-Хаб (Яндекс Музыка, Spotify, Audius, VK, SoundCloud)
+## 🔌 Подключение Яндекс Музыки: Пошаговая инструкция
 
-**MP3 Player Pro** позволяет подключать личные учётные записи нескольких стриминговых сервисов (включая несколько аккаунтов одной платформы, например личный и семейный) и **переключаться между ними в 1 тап** прямо с экрана плеера или из библиотеки **«Моя Музыка»**.
+MP3 Player Pro поддерживает прямую интеграцию с каталогом и вашей личной библиотекой Яндекс Музыки.
 
-### Поддерживаемые платформы и быстрое подключение:
-* 🟡 **Яндекс Музыка (`api.music.yandex.net` + потоковый прокси):** загрузка разделов «Мне нравится» и плейлистов, потоковое воспроизведение MP3 320 kbps через 10-полосный эквалайзер (`server.ts`). Авторизация через Яндекс ID OAuth Popup или персональный OAuth-токен (`y0_...`).
-* 🟢 **Spotify (`api.spotify.com/v1`):** загрузка сохранённых треков и плейлистов пользователя через OAuth 2.0 Popup или Bearer Token.
-* 🟣 **Audius (`discoveryprovider.audius.co`):** мгновенное подключение по имени пользователя (`@handle`) без API-ключей и паролей, прямой поток 320 kbps MP3.
-* 🔵 **VK Музыка & 🟠 SoundCloud:** подключение через OAuth 2.0 Popup или токен доступа с синхронизацией фонотеки.
-
-### Настройка 1-Click OAuth 2.0 (для Spotify / Яндекс / VK / SoundCloud):
-1. Укажите один или оба **Redirect / Callback URI** в настройках вашего OAuth-приложения:
-   * **Dev URL:** `https://ais-dev-j7b427wkoizcvcq5rwhfmj-295894228778.us-east1.run.app/auth/callback`
-   * **Shared URL:** `https://ais-pre-j7b427wkoizcvcq5rwhfmj-295894228778.us-east1.run.app/auth/callback`
-2. Задайте переменные окружения (`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, опционально `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` и др. — см. `.env.example`).
-3. Нажмите кнопку **«Стриминг»** / **`+ Аккаунт`** внутри плеера, выберите платформу и авторизуйтесь — аккаунт сохранится в локальный список для мгновенного переключения в 1 клик.
+### Как подключить личный аккаунт:
+1. **Получение персонального OAuth-токена:**
+   * Откройте браузер на смартфоне или ПК и перейдите по ссылке авторизации Яндекс OAuth:
+     `https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b9da329cb3e14`
+     *(Используется стандартный ClientID мобильного приложения Яндекс Музыки)*.
+   * Войдите в свой Яндекс ID и нажмите **«Разрешить»**.
+   * В адресной строке браузера скопируйте параметр `access_token=y0_AgAAAA...`.
+2. **Ввод токена в приложении MP3 Player Pro:**
+   * Откройте MP3 Player Pro и перейдите во вкладку **«ПЕСНИ»** или **«НАСТРОЙКИ»**.
+   * Нажмите желтую кнопку **«Яндекс Музыка»**.
+   * Вставьте скопированный OAuth-токен в поле ввода и нажмите кнопку **«Синхронизировать медиатеку»**.
+3. **Что происходит при синхронизации:**
+   * Приложение безопасно подключается к `api.music.yandex.net` по протоколу HTTPS.
+   * Выгружаются треки из раздела **«Мне нравится»** (плейлист «Любимое») с оригинальными названиями, именами артистов и обложками высокого разрешения 1000x1000.
+   * Метаданные сохраняются в локальную базу данных плеера, и треки сразу появляются в общем списке медиатеки.
+4. **Фоновое скачивание и автономное прослушивание:**
+   * Синхронизированные треки можно слушать в потоковом режиме или скачать для прослушивания без интернета.
+   * Аудиофайлы сохраняются в качестве 320 kbps MP3 в каталог Scoped Storage `Music/YandexMusic/`.
 
 ---
 
 ## 🚀 Как собрать и протестировать:
 
-### Вариант 1. Веб-симулятор и студийный стенд (React + Vite)
-```bash
-npm install
-npm run dev
-```
-
-### Вариант 2. Скачать готовый APK для Android
+### Вариант 1. Скачать готовый APK
 Перейдите во вкладку [Releases](https://github.com/pippopil/Mp3pro-/releases) и скачайте свежий файл:
-* **`MP3PlayerPro-1.0.0-beta23.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
+* **`MP3PlayerPro-1.0.0-beta14.apk`** — для быстрой установки на телефон (Xiaomi, POCO, Samsung, Pixel и др.).
 
-### Вариант 3. Автоматическая сборка через GitHub Actions
+### Вариант 2. Автоматическая сборка через GitHub Actions
 Создайте тег версии:
 ```bash
-git tag -a v1.0.0-beta23 -m "Release v1.0.0-beta23"
-git push origin v1.0.0-beta23
+git tag -a v1.0.0-beta14 -m "Release v1.0.0-beta14"
+git push origin v1.0.0-beta14
 ```
-GitHub Actions соберёт релизный APK/AAB и автоматически прикрепит его к релизу.
+GitHub Actions соберёт релизный APK и автоматически прикрепит его к релизу.

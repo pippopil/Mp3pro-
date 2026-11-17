@@ -17,7 +17,12 @@ data class Song(
     val bitrate: String = "320 kbps",
     val isBuiltIn: Boolean = false,
     val recommendedPreset: String = "Normal (Плоский)",
-    val folder: String = ""
+    val folder: String = "",
+    val playCount: Int = 0,
+    val lastPlayedAt: Long? = null,
+    val tags: List<String> = emptyList(),
+    val customNotes: String = "",
+    val streamingProvider: String? = null
 ) {
     val folderName: String
         get() = if (folder.isNotBlank()) {

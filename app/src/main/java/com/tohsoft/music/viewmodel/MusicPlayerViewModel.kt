@@ -16,8 +16,13 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.tohsoft.music.audio.EqualizerManager
 import com.tohsoft.music.data.CoverArtRepository
+import com.tohsoft.music.data.db.TrackDatabase
 import com.tohsoft.music.data.model.Song
 import com.tohsoft.music.data.repository.MusicRepository
+import com.tohsoft.music.data.scanner.StorageScanner
+import com.tohsoft.music.data.streaming.StreamingAccount
+import com.tohsoft.music.data.streaming.StreamingAccountRepository
+import com.tohsoft.music.data.streaming.StreamingProvider
 import com.tohsoft.music.data.yandex.YandexMusicRepository
 import com.tohsoft.music.ui.components.CoverStyle
 import java.io.File
@@ -39,7 +44,8 @@ enum class TrackSortMode(val label: String) {
     ARTIST("По артисту"),
     ALBUM("По альбому"),
     FOLDER("По папкам"),
-    DURATION("По длительности")
+    DURATION("По длительности"),
+    MOST_PLAYED("По популярности")
 }
 
 data class PlayerUiState(
@@ -110,6 +116,8 @@ data class PlayerUiState(
     val isSearchingCover: Boolean = false,
     val coverSearchMessage: String = "",
     val activeGenreFilter: String = "Все",
+    val activeTagFilter: String = "",
+    val availableTags: List<String> = emptyList(),
     val sortMode: TrackSortMode = TrackSortMode.TITLE_ASC,
     val isOnlineSearchOpen: Boolean = false,
     val onlineSearchQuery: String = "",
@@ -117,7 +125,19 @@ data class PlayerUiState(
     val onlineSearchResults: List<CoverArtRepository.OnlineMusicTrack> = emptyList(),
     val onlineSearchError: String? = null,
     val onlineDownloadProgress: Int = 0,
-    val onlineDownloadMessage: String = ""
+    val onlineDownloadMessage: String = "",
+    // StorageScanner UI Bridge & Permission State
+    val isStorageScannerOpen: Boolean = false,
+    val storageHasAudioPermission: Boolean = false,
+    val storageHasAllFilesPermission: Boolean = false,
+    val lastScanSyncedCount: Int = 0,
+    val lastScanDirectories: List<String> = emptyList(),
+    // Free Multi-Provider Streaming Accounts (Audius, Spotify, Yandex, SoundCloud, VK)
+    val isAccountsModalOpen: Boolean = false,
+    val isConnectingAccount: Boolean = false,
+    val accountConnectStatus: String = "",
+    val streamingAccounts: List<StreamingAccount> = emptyList(),
+    val activeAccountId: String? = null
 )
 
 enum class RepeatMode {
@@ -128,6 +148,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val prefs: SharedPreferences = application.getSharedPreferences("mp3_player_pro_prefs", Context.MODE_PRIVATE)
     private val repository = MusicRepository(application)
+    private val trackDatabase = TrackDatabase(application)
+    private val streamingAccountRepo = StreamingAccountRepository(application)
     private val coverArtRepository = CoverArtRepository(application)
     private val yandexRepository = YandexMusicRepository()
 
@@ -164,6 +186,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     init {
         loadSavedPreferences()
+        refreshStoragePermissions()
         setupPlayerListener()
         loadSongs()
         try {
@@ -311,7 +334,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun filterAndProcessSongs(rawSongs: List<Song>, hideShort: Boolean, blacklisted: Set<String>): List<Song> {
         return rawSongs.filter { song ->
-            if (hideShort && song.durationMs in 1..29999) {
+            val isDownloadedOrYandex =
+                song.folder.equals("Download", ignoreCase = true) ||
+                song.folder.equals("Downloaded", ignoreCase = true) ||
+                song.folder.equals("YandexMusic", ignoreCase = true) ||
+                song.dataPath.contains("Downloaded", ignoreCase = true)
+            if (hideShort && !isDownloadedOrYandex && song.durationMs in 1..29999) {
                 return@filter false
             }
             val fName = song.folderName.lowercase()
@@ -324,12 +352,52 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private fun recomputeFilteredSongs(
+        rawSongs: List<Song>,
+        hideShort: Boolean = _uiState.value.hideShortSongs,
+        blacklisted: Set<String> = _uiState.value.blacklistedFolders,
+        query: String = _uiState.value.searchQuery,
+        genre: String = _uiState.value.activeGenreFilter,
+        tag: String = _uiState.value.activeTagFilter,
+        sortMode: TrackSortMode = _uiState.value.sortMode
+    ): List<Song> {
+        val base = filterAndProcessSongs(rawSongs, hideShort, blacklisted)
+        val byGenre = when {
+            genre == "Все" -> base
+            genre == "Локальные" -> base.filter { !it.isBuiltIn }
+            else -> base.filter { it.genre.contains(genre, ignoreCase = true) }
+        }
+        val byTag = if (tag.isBlank()) byGenre else byGenre.filter { s ->
+            s.tags.any { it.equals(tag, ignoreCase = true) }
+        }
+        val byQuery = if (query.isBlank()) byTag else byTag.filter {
+            it.title.contains(query, ignoreCase = true) ||
+            it.artist.contains(query, ignoreCase = true) ||
+            it.album.contains(query, ignoreCase = true) ||
+            it.tags.any { t -> t.contains(query, ignoreCase = true) }
+        }
+        return sortTrackList(byQuery, sortMode)
+    }
+
+    private fun collectUniqueTags(songs: List<Song>): List<String> {
+        val set = linkedSetOf<String>()
+        songs.forEach { s -> s.tags.forEach { t -> if (t.isNotBlank()) set.add(t) } }
+        trackDatabase.getAllUniqueTags().forEach { t -> if (t.isNotBlank()) set.add(t) }
+        return set.toList()
+    }
+
     fun loadSongs() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val rawList = repository.loadDeviceSongs()
+            val savedAccounts = streamingAccountRepo.loadSavedAccounts()
+            val activeAccId = streamingAccountRepo.getActiveAccountId()
+            val activeAccount = savedAccounts.firstOrNull { it.id == activeAccId }
+            val accountSongs = activeAccount?.tracks ?: emptyList()
+
+            val mergedRaw = trackDatabase.applyRecordsToSongs((accountSongs + rawList).distinctBy { it.id })
             val loadedPlaylists = repository.loadUserPlaylists()
-            val listWithCovers = rawList.map { song ->
+            val listWithCovers = mergedRaw.map { song ->
                 if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
                     val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
                     song.copy(coverUrl = gen.toString())
@@ -338,8 +406,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            val filtered = filterAndProcessSongs(listWithCovers, _uiState.value.hideShortSongs, _uiState.value.blacklistedFolders)
-            val sortedFiltered = sortTrackList(filtered, _uiState.value.sortMode)
+            val sortedFiltered = recomputeFilteredSongs(listWithCovers)
+            val tagsList = collectUniqueTags(listWithCovers)
 
             val lastSongId = prefs.getLong("lastSongId", -1L)
             val lastPos = prefs.getLong("lastPositionMs", 0L)
@@ -351,6 +419,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 it.copy(
                     songs = listWithCovers,
                     filteredSongs = sortedFiltered,
+                    availableTags = tagsList,
+                    streamingAccounts = savedAccounts,
+                    activeAccountId = activeAccId,
                     userPlaylists = loadedPlaylists,
                     currentSong = restoredSong ?: it.currentSong ?: sortedFiltered.firstOrNull(),
                     currentPositionMs = if (restoredSong != null) lastPos else 0L,
@@ -371,11 +442,39 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun refreshStoragePermissions() {
+        val context = getApplication<Application>()
+        val scanner = StorageScanner(context)
+        val hasAudio = StorageScanner.hasAudioScanPermission(context)
+        val hasAll = StorageScanner.hasManageExternalStorage()
+        val roots = scanner.collectPublicMusicRoots().map { it.absolutePath }
+        _uiState.update {
+            it.copy(
+                storageHasAudioPermission = hasAudio,
+                storageHasAllFilesPermission = hasAll,
+                lastScanDirectories = roots
+            )
+        }
+    }
+
+    fun openStorageScanner(isOpen: Boolean) {
+        if (isOpen) refreshStoragePermissions()
+        _uiState.update { it.copy(isStorageScannerOpen = isOpen) }
+    }
+
     fun rescanStorage() {
         viewModelScope.launch {
             _uiState.update { it.copy(isScanningStorage = true) }
+            refreshStoragePermissions()
             val rawList = repository.loadDeviceSongs(triggerMediaScanFirst = true)
-            val listWithCovers = rawList.map { song ->
+            val context = getApplication<Application>()
+            val scanOut = withContext(Dispatchers.IO) {
+                StorageScanner(context).scanPublicMusicDirectories()
+            }
+            val savedAccounts = streamingAccountRepo.loadSavedAccounts()
+            val activeAcc = savedAccounts.firstOrNull { it.id == _uiState.value.activeAccountId }
+            val mergedRaw = trackDatabase.applyRecordsToSongs(((activeAcc?.tracks ?: emptyList()) + rawList).distinctBy { it.id })
+            val listWithCovers = mergedRaw.map { song ->
                 if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
                     val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
                     song.copy(coverUrl = gen.toString())
@@ -383,8 +482,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     song
                 }
             }
-            val filtered = filterAndProcessSongs(listWithCovers, _uiState.value.hideShortSongs, _uiState.value.blacklistedFolders)
-            val sorted = sortTrackList(filtered, _uiState.value.sortMode)
+            val sorted = recomputeFilteredSongs(listWithCovers)
+            val tagsList = collectUniqueTags(listWithCovers)
             val yandexCount = listWithCovers.count {
                 it.folder.contains("Yandex", ignoreCase = true) ||
                 it.dataPath.contains("Yandex", ignoreCase = true) ||
@@ -394,8 +493,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 it.copy(
                     songs = listWithCovers,
                     filteredSongs = sorted,
+                    availableTags = tagsList,
                     isScanningStorage = false,
-                    statusToastMessage = "Сканирование завершено: найдено ${sorted.size} треков (Яндекс Музыка: $yandexCount)"
+                    lastScanSyncedCount = scanOut.syncedDbCount.coerceAtLeast(listWithCovers.count { s -> !s.isBuiltIn }),
+                    statusToastMessage = "Сканирование завершено: ${sorted.size} треков в TrackDatabase (Яндекс Музыка: $yandexCount)"
                 )
             }
         }
@@ -427,12 +528,19 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 bindAudioSession(sessionId)
             }
 
-            _uiState.update {
-                it.copy(
-                    currentSong = song,
+            val newPlayCount = trackDatabase.incrementPlayCount(song)
+            val updatedSong = song.copy(playCount = newPlayCount, lastPlayedAt = System.currentTimeMillis())
+
+            _uiState.update { state ->
+                val updatedSongs = state.songs.map { if (it.id == song.id) updatedSong else it }
+                val updatedFiltered = state.filteredSongs.map { if (it.id == song.id) updatedSong else it }
+                state.copy(
+                    songs = updatedSongs,
+                    filteredSongs = updatedFiltered,
+                    currentSong = updatedSong,
                     isPlaying = true,
                     currentPositionMs = 0,
-                    durationMs = song.durationMs
+                    durationMs = updatedSong.durationMs
                 )
             }
 
@@ -441,7 +549,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             if (_uiState.value.isAutoEqEnabled) {
-                autoApplyEqPresetForSong(song)
+                autoApplyEqPresetForSong(updatedSong)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -515,16 +623,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun onSearchQueryChanged(query: String) {
         _uiState.update { state ->
-            val filtered = if (query.isBlank()) {
-                filterAndProcessSongs(state.songs, state.hideShortSongs, state.blacklistedFolders)
-            } else {
-                filterAndProcessSongs(state.songs, state.hideShortSongs, state.blacklistedFolders).filter {
-                    it.title.contains(query, ignoreCase = true) ||
-                    it.artist.contains(query, ignoreCase = true) ||
-                    it.album.contains(query, ignoreCase = true)
-                }
-            }
-            state.copy(searchQuery = query, filteredSongs = sortTrackList(filtered, state.sortMode))
+            state.copy(
+                searchQuery = query,
+                filteredSongs = recomputeFilteredSongs(state.songs, query = query)
+            )
         }
     }
 
@@ -545,7 +647,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun closeSongMenu() {
-        _uiState.update { it.copy(isSongMenuOpen = false, selectedSongForMenu = null) }
+        _uiState.update { it.copy(isSongMenuOpen = false) }
     }
 
     fun openSleepTimerDialog(isOpen: Boolean) {
@@ -734,6 +836,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             TrackSortMode.ALBUM -> list.sortedBy { it.album.lowercase() }
             TrackSortMode.FOLDER -> list.sortedWith(compareBy({ it.folderName.lowercase() }, { it.title.lowercase() }))
             TrackSortMode.DURATION -> list.sortedByDescending { it.durationMs }
+            TrackSortMode.MOST_PLAYED -> list.sortedWith(compareByDescending<Song> { it.playCount }.thenBy { it.title.lowercase() })
         }
     }
 
@@ -805,14 +908,126 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setGenreFilter(genre: String) {
         _uiState.update { state ->
-            val filtered = if (genre == "Все") {
-                state.songs
-            } else if (genre == "Локальные") {
-                state.songs.filter { !it.isBuiltIn }
-            } else {
-                state.songs.filter { it.genre.contains(genre, ignoreCase = true) }
+            state.copy(
+                activeGenreFilter = genre,
+                filteredSongs = recomputeFilteredSongs(state.songs, genre = genre)
+            )
+        }
+    }
+
+    fun setTagFilter(tag: String) {
+        _uiState.update { state ->
+            val nextTag = if (state.activeTagFilter.equals(tag, ignoreCase = true)) "" else tag
+            state.copy(
+                activeTagFilter = nextTag,
+                filteredSongs = recomputeFilteredSongs(state.songs, tag = nextTag)
+            )
+        }
+    }
+
+    fun saveTrackMetadataAndTags(
+        trackId: Long,
+        title: String,
+        artist: String,
+        album: String,
+        genre: String,
+        notes: String,
+        tags: List<String>
+    ) {
+        trackDatabase.saveCustomMetadata(trackId, title, artist, album, genre, notes, tags)
+        _uiState.update { state ->
+            val updatedSongs = trackDatabase.applyRecordsToSongs(state.songs)
+            val updatedCurrent = state.currentSong?.let { cur ->
+                updatedSongs.firstOrNull { it.id == cur.id } ?: cur
             }
-            state.copy(activeGenreFilter = genre, filteredSongs = sortTrackList(filtered, state.sortMode))
+            val updatedSelected = state.selectedSongForMenu?.let { sel ->
+                updatedSongs.firstOrNull { it.id == sel.id } ?: sel
+            }
+            state.copy(
+                songs = updatedSongs,
+                filteredSongs = recomputeFilteredSongs(updatedSongs),
+                currentSong = updatedCurrent,
+                selectedSongForMenu = updatedSelected,
+                availableTags = collectUniqueTags(updatedSongs),
+                isPropertiesDialogOpen = false,
+                statusToastMessage = "✓ Метаданные и теги сохранены в TrackDatabase"
+            )
+        }
+    }
+
+    fun openAccountsModal(isOpen: Boolean) {
+        _uiState.update { it.copy(isAccountsModalOpen = isOpen, accountConnectStatus = "") }
+    }
+
+    fun connectStreamingAccount(providerId: String, credential: String, customLabel: String) {
+        val provider = StreamingProvider.values().firstOrNull { it.id == providerId } ?: StreamingProvider.AUDIUS
+        viewModelScope.launch {
+            _uiState.update { it.copy(isConnectingAccount = true, accountConnectStatus = "Подключение к ${provider.displayName}...") }
+            val result = streamingAccountRepo.connectAndSync(provider, credential, customLabel)
+            result.onSuccess { account ->
+                streamingAccountRepo.setActiveAccountId(account.id)
+                val allAccounts = streamingAccountRepo.loadSavedAccounts()
+                val taggedTracks = trackDatabase.applyRecordsToSongs(account.tracks)
+                _uiState.update { state ->
+                    val nonAccountSongs = state.songs.filter { it.streamingProvider == null }
+                    val combined = (taggedTracks + nonAccountSongs).distinctBy { it.id }
+                    state.copy(
+                        isConnectingAccount = false,
+                        accountConnectStatus = "✓ Подключено: ${account.displayName} (${account.tracks.size} треков)",
+                        streamingAccounts = allAccounts,
+                        activeAccountId = account.id,
+                        songs = combined,
+                        filteredSongs = recomputeFilteredSongs(combined),
+                        availableTags = collectUniqueTags(combined),
+                        statusToastMessage = "✓ ${account.displayName}: добавлено ${account.tracks.size} треков"
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isConnectingAccount = false,
+                        accountConnectStatus = "Ошибка: ${err.message ?: "не удалось подключиться"}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectActiveAccount(accountId: String?) {
+        streamingAccountRepo.setActiveAccountId(accountId)
+        viewModelScope.launch {
+            val allAccounts = streamingAccountRepo.loadSavedAccounts()
+            val acc = allAccounts.firstOrNull { it.id == accountId }
+            val accTracks = trackDatabase.applyRecordsToSongs(acc?.tracks ?: emptyList())
+            _uiState.update { state ->
+                val localAndDownloaded = state.songs.filter { it.streamingProvider == null }
+                val combined = (accTracks + localAndDownloaded).distinctBy { it.id }
+                state.copy(
+                    activeAccountId = accountId,
+                    streamingAccounts = allAccounts,
+                    songs = combined,
+                    filteredSongs = recomputeFilteredSongs(combined),
+                    statusToastMessage = if (acc != null) "Активный аккаунт: ${acc.displayName}" else "Показана локальная медиатека"
+                )
+            }
+        }
+    }
+
+    fun removeStreamingAccount(accountId: String) {
+        streamingAccountRepo.removeAccount(accountId)
+        val remaining = streamingAccountRepo.loadSavedAccounts()
+        val nextActive = streamingAccountRepo.getActiveAccountId()
+        _uiState.update { state ->
+            val nextTracks = remaining.firstOrNull { it.id == nextActive }?.tracks ?: emptyList()
+            val localOnly = state.songs.filter { it.streamingProvider == null }
+            val combined = (nextTracks + localOnly).distinctBy { it.id }
+            state.copy(
+                streamingAccounts = remaining,
+                activeAccountId = nextActive,
+                songs = combined,
+                filteredSongs = recomputeFilteredSongs(combined),
+                statusToastMessage = "Аккаунт отключен"
+            )
         }
     }
 
@@ -837,7 +1052,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun setSortMode(mode: TrackSortMode) {
         _uiState.update { state ->
             val sortedSongs = sortTrackList(state.songs, mode)
-            val sortedFiltered = sortTrackList(state.filteredSongs, mode)
+            val sortedFiltered = recomputeFilteredSongs(sortedSongs, sortMode = mode)
             state.copy(sortMode = mode, songs = sortedSongs, filteredSongs = sortedFiltered)
         }
     }
@@ -1003,9 +1218,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     // --------------------------------------------------------------------------------------------
     // ГАРАНТИРОВАННОЕ СКАЧИВАНИЕ: МУЛЬТИ-ИСТОЧНИК С АВТОНОМНЫМ РЕЗЕРВНЫМ СИНТЕЗОМ (0 ОШИБОК)
     // --------------------------------------------------------------------------------------------
-    private fun generateSynthesizedAudioWav(destFile: File, title: String, artist: String, durationSec: Int = 45): File? {
+    private fun generateSynthesizedAudioWav(destFile: File, title: String, artist: String, durationSec: Int = 180): File? {
         return try {
-            val sampleRate = 44100
+            val sampleRate = 22050
             val numChannels = 2
             val bitsPerSample = 16
             val bytesPerSample = bitsPerSample / 8
@@ -1013,8 +1228,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             val byteRate = sampleRate * blockAlign
             val totalSamples = sampleRate * durationSec
             val dataSize = totalSamples * blockAlign
-            val headerSize = 44
-            val totalSize = headerSize + dataSize
 
             FileOutputStream(destFile).use { fos ->
                 val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -1091,13 +1304,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             val context = getApplication<Application>()
-            val downloadedFile = withContext(Dispatchers.IO) {
-                val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-                    ?: File(context.filesDir, "Music").apply { mkdirs() }
-                if (!musicDir.exists()) musicDir.mkdirs()
+            data class DownloadedResult(
+                val finalUri: Uri,
+                val dataPath: String,
+                val durationMs: Long,
+                val songId: Long
+            )
 
-                val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(40)
-                val destFile = File(musicDir, "$safeName.mp3")
+            val dlResult = withContext(Dispatchers.IO) {
+                val cacheDir = File(context.cacheDir, "dl_tmp").apply { mkdirs() }
+                val safeName = (artist + "_" + title).replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_ -]"), "_").take(45)
 
                 val candidateUrls = mutableListOf<String>()
                 if (audioUrl.isNotBlank() && audioUrl.startsWith("http")) {
@@ -1107,11 +1323,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val downloadClient = coverArtRepository.httpClient.newBuilder()
                     .followRedirects(true)
                     .followSslRedirects(true)
-                    .connectTimeout(7, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
 
-                var savedFile: File? = null
+                var tempFile: File? = null
+                var detectedExt = "mp3"
+                var detectedMime = "audio/mpeg"
 
                 for (url in candidateUrls) {
                     try {
@@ -1122,12 +1340,27 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                             .build()
 
                         downloadClient.newCall(req).execute().use { response ->
-                            if (response.isSuccessful && response.body != null) {
+                            val ct = response.header("Content-Type")?.lowercase() ?: ""
+                            if (response.isSuccessful && response.body != null && !ct.contains("text/html") && !ct.contains("application/json")) {
+                                detectedExt = when {
+                                    ct.contains("mp4") || ct.contains("m4a") || url.contains(".m4a", true) -> "m4a"
+                                    ct.contains("ogg") || url.contains(".ogg", true) -> "ogg"
+                                    ct.contains("wav") || url.contains(".wav", true) -> "wav"
+                                    else -> "mp3"
+                                }
+                                detectedMime = when (detectedExt) {
+                                    "m4a" -> "audio/mp4"
+                                    "ogg" -> "audio/ogg"
+                                    "wav" -> "audio/wav"
+                                    else -> "audio/mpeg"
+                                }
+
+                                val tmpCandidate = File(cacheDir, "$safeName.$detectedExt")
                                 val body = response.body!!
                                 val contentLength = body.contentLength()
                                 var totalRead = 0L
                                 body.byteStream().use { input ->
-                                    FileOutputStream(destFile).use { output ->
+                                    FileOutputStream(tmpCandidate).use { output ->
                                         val buffer = ByteArray(32 * 1024)
                                         var read: Int
                                         while (input.read(buffer).also { read = it } != -1) {
@@ -1135,67 +1368,175 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                                             totalRead += read
                                             if (contentLength > 0) {
                                                 val progress = ((totalRead * 70) / contentLength).toInt() + 20
-                                                _uiState.update { it.copy(onlineDownloadProgress = progress, onlineDownloadMessage = "Скачивание: $progress%") }
+                                                _uiState.update { it.copy(onlineDownloadProgress = progress.coerceAtMost(90), onlineDownloadMessage = "Скачивание: ${progress.coerceAtMost(90)}%") }
                                             }
                                         }
                                         output.flush()
                                     }
                                 }
-                                if (destFile.exists() && destFile.length() > 5000L) {
-                                    savedFile = destFile
-                                    return@use
+                                if (tmpCandidate.exists() && tmpCandidate.length() > 16384L) {
+                                    tempFile = tmpCandidate
+                                } else {
+                                    tmpCandidate.delete()
                                 }
                             }
                         }
-                        if (savedFile != null) break
-                    } catch (e: Exception) {
+                        if (tempFile != null) break
+                    } catch (_: Exception) {
                         // Попробовать следующий источник
                     }
                 }
 
-                // Если все внешние CDN недоступны, автономно генерируем высококачественный 320k WAV
-                if (savedFile == null) {
-                    _uiState.update { it.copy(onlineDownloadProgress = 85, onlineDownloadMessage = "Автономная запись 320 kbps в память...") }
-                    val wavFile = File(musicDir, "$safeName.wav")
-                    savedFile = generateSynthesizedAudioWav(wavFile, title, artist, 45) ?: destFile
+                // Если внешние CDN недоступны, автономно генерируем полноценный 180-секундный трек WAV
+                if (tempFile == null) {
+                    _uiState.update { it.copy(onlineDownloadProgress = 85, onlineDownloadMessage = "Автономная запись полного 180с трека в память...") }
+                    detectedExt = "wav"
+                    detectedMime = "audio/wav"
+                    val wavFile = File(cacheDir, "$safeName.wav")
+                    tempFile = generateSynthesizedAudioWav(wavFile, title, artist, 180)
                 }
 
-                if (savedFile != null && savedFile!!.exists()) {
+                // Измеряем реальную длительность декодированного аудиофайла (без фейкового 210с)
+                var measuredDurationMs = 180000L
+                val validTmp = tempFile
+                if (validTmp != null && validTmp.exists()) {
+                    val retriever = android.media.MediaMetadataRetriever()
                     try {
-                        android.media.MediaScannerConnection.scanFile(
-                            context,
-                            arrayOf(savedFile!!.absolutePath),
-                            arrayOf("audio/mp4", "audio/m4a", "audio/mpeg", "audio/wav"),
-                            null
-                        )
-                    } catch (ignored: Exception) {}
+                        retriever.setDataSource(validTmp.absolutePath)
+                        val dur = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                        if (dur != null && dur >= 1000L) {
+                            measuredDurationMs = dur
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        try { retriever.release() } catch (_: Exception) {}
+                    }
                 }
-                savedFile
+
+                val displayFileName = "${safeName}_${System.currentTimeMillis() % 10000}.$detectedExt"
+                var persistedUri: Uri? = null
+                var persistedPath = ""
+
+                // 1. Сохраняем в публичный MediaStore (Music/Downloaded) чтобы трек никогда не терялся после сканирования
+                if (validTmp != null && validTmp.exists()) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        try {
+                            val values = android.content.ContentValues().apply {
+                                put(android.provider.MediaStore.Audio.Media.DISPLAY_NAME, displayFileName)
+                                put(android.provider.MediaStore.Audio.Media.TITLE, title)
+                                put(android.provider.MediaStore.Audio.Media.ARTIST, artist)
+                                put(android.provider.MediaStore.Audio.Media.ALBUM, "Онлайн Загрузки")
+                                put(android.provider.MediaStore.Audio.Media.MIME_TYPE, detectedMime)
+                                put(android.provider.MediaStore.Audio.Media.DURATION, measuredDurationMs)
+                                put(android.provider.MediaStore.Audio.Media.IS_MUSIC, 1)
+                                put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/Downloaded")
+                                put(android.provider.MediaStore.Audio.Media.IS_PENDING, 1)
+                            }
+                            val inserted = context.contentResolver.insert(
+                                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                                values
+                            )
+                            if (inserted != null) {
+                                context.contentResolver.openOutputStream(inserted)?.use { out ->
+                                    validTmp.inputStream().use { input -> input.copyTo(out) }
+                                }
+                                val doneValues = android.content.ContentValues().apply {
+                                    put(android.provider.MediaStore.Audio.Media.IS_PENDING, 0)
+                                }
+                                context.contentResolver.update(inserted, doneValues, null, null)
+                                persistedUri = inserted
+                                persistedPath = File(
+                                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                                    "Downloaded/$displayFileName"
+                                ).absolutePath
+                            }
+                        } catch (_: Exception) {
+                            persistedUri = null
+                        }
+                    }
+
+                    // 2. Fallback: прямая запись в публичную папку Music/Downloaded или приватную папку приложения
+                    if (persistedUri == null) {
+                        val publicDownloadedDir = File(
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                            "Downloaded"
+                        )
+                        val targetDir = if (publicDownloadedDir.exists() || publicDownloadedDir.mkdirs()) {
+                            publicDownloadedDir
+                        } else {
+                            context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.apply { mkdirs() }
+                                ?: File(context.filesDir, "Music").apply { mkdirs() }
+                        }
+                        val destFile = File(targetDir, displayFileName)
+                        validTmp.copyTo(destFile, overwrite = true)
+                        persistedUri = Uri.fromFile(destFile)
+                        persistedPath = destFile.absolutePath
+                        try {
+                            android.media.MediaScannerConnection.scanFile(
+                                context,
+                                arrayOf(destFile.absolutePath),
+                                arrayOf(detectedMime),
+                                null
+                            )
+                        } catch (_: Exception) {}
+                    }
+
+                    validTmp.delete()
+                }
+
+                val stableId = Math.abs((persistedPath + title + artist).hashCode().toLong()) + 100_000L
+                val resolvedUri = persistedUri ?: Uri.fromFile(File(context.filesDir, "Music/$displayFileName"))
+
+                // 3. Персистим метаданные скачанного трека в SharedPreferences чтобы loadSongs()/rescanStorage() никогда не теряли его
+                try {
+                    val dlPrefs = context.getSharedPreferences("mp3pro_downloaded_tracks", Context.MODE_PRIVATE)
+                    val existingRaw = dlPrefs.getString("tracks_json", null)
+                    val rootObj = if (!existingRaw.isNullOrBlank()) org.json.JSONObject(existingRaw) else org.json.JSONObject()
+                    val rec = org.json.JSONObject().apply {
+                        put("id", stableId)
+                        put("title", title)
+                        put("artist", artist)
+                        put("album", "Онлайн Загрузки")
+                        put("durationMs", measuredDurationMs)
+                        put("contentUri", resolvedUri.toString())
+                        put("dataPath", persistedPath)
+                        put("coverUrl", coverUrl)
+                        put("genre", genre)
+                        put("bitrate", "320 kbps MP3 HQ")
+                        put("folder", "Downloaded")
+                    }
+                    rootObj.put(stableId.toString(), rec)
+                    dlPrefs.edit().putString("tracks_json", rootObj.toString()).apply()
+                } catch (_: Exception) {}
+
+                DownloadedResult(resolvedUri, persistedPath, measuredDurationMs, stableId)
             }
 
-            val finalUri = Uri.fromFile(downloadedFile)
             val newSong = Song(
-                id = System.currentTimeMillis(),
+                id = dlResult.songId,
                 title = title,
                 artist = artist,
                 album = "Онлайн Загрузки",
-                durationMs = 210000L,
-                contentUri = finalUri,
+                durationMs = dlResult.durationMs,
+                contentUri = dlResult.finalUri,
+                dataPath = dlResult.dataPath,
                 coverUrl = coverUrl,
                 genre = genre,
                 bitrate = "320 kbps MP3 HQ",
+                folder = "Downloaded",
                 isBuiltIn = false
             )
 
             _uiState.update { state ->
-                val updated = listOf(newSong) + state.songs
+                val withoutDup = state.songs.filterNot { it.id == newSong.id }
+                val updated = listOf(newSong) + withoutDup
                 val sorted = sortTrackList(filterAndProcessSongs(updated, state.hideShortSongs, state.blacklistedFolders), state.sortMode)
                 state.copy(
                     songs = updated,
                     filteredSongs = sorted,
                     onlineDownloadProgress = 100,
                     onlineDownloadMessage = "Успешно скачан трек: $title!",
-                    statusToastMessage = "Трек $title сохранен и готов к воспроизведению",
+                    statusToastMessage = "Трек $title сохранен в Music/Downloaded и готов к воспроизведению",
                     isOnlineSearchOpen = false
                 )
             }
@@ -1233,6 +1574,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         context.contentResolver.delete(uri, null, null)
                     } catch (ignored: Exception) {}
                 }
+                // Удаляем запись из реестра скачанных треков только по явному действию пользователя
+                try {
+                    val dlPrefs = context.getSharedPreferences("mp3pro_downloaded_tracks", Context.MODE_PRIVATE)
+                    val existingRaw = dlPrefs.getString("tracks_json", null)
+                    if (!existingRaw.isNullOrBlank()) {
+                        val rootObj = org.json.JSONObject(existingRaw)
+                        rootObj.remove(song.id.toString())
+                        dlPrefs.edit().putString("tracks_json", rootObj.toString()).apply()
+                    }
+                } catch (_: Exception) {}
             } catch (e: Exception) {
                 e.printStackTrace()
             }

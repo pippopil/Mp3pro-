@@ -207,14 +207,58 @@ class MusicRepository(private val context: Context) {
             e.printStackTrace()
         }
 
+        // Добавляем сохранённые онлайн-загрузки из mp3pro_downloaded_tracks (если еще не проиндексированы MediaStore)
+        try {
+            val dlPrefs = context.getSharedPreferences("mp3pro_downloaded_tracks", Context.MODE_PRIVATE)
+            val rawDl = dlPrefs.getString("tracks_json", null)
+            if (!rawDl.isNullOrBlank()) {
+                val obj = org.json.JSONObject(rawDl)
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val rec = obj.optJSONObject(key) ?: continue
+                    val filePath = rec.optString("dataPath", "")
+                    val uriStr = rec.optString("contentUri", "")
+                    val fileExists = filePath.isNotBlank() && File(filePath).exists()
+                    val contentValid = uriStr.startsWith("content://")
+                    if (!fileExists && !contentValid) continue
+                    if (filePath.isNotBlank() && filePath.lowercase() in indexedPaths) continue
+
+                    val parsedUri = when {
+                        uriStr.isNotBlank() -> Uri.parse(uriStr)
+                        else -> Uri.fromFile(File(filePath))
+                    }
+                    if (filePath.isNotBlank()) indexedPaths.add(filePath.lowercase())
+                    songList.add(
+                        Song(
+                            id = rec.optLong("id", key.toLongOrNull() ?: System.currentTimeMillis()),
+                            title = rec.optString("title", "Неизвестный трек"),
+                            artist = rec.optString("artist", "Неизвестный исполнитель"),
+                            album = rec.optString("album", "Онлайн Загрузки"),
+                            durationMs = rec.optLong("durationMs", 180000L),
+                            contentUri = parsedUri,
+                            dataPath = filePath,
+                            coverUrl = rec.optString("coverUrl").takeIf { it.isNotBlank() },
+                            genre = rec.optString("genre", "Downloaded"),
+                            bitrate = rec.optString("bitrate", "320 kbps MP3 HQ"),
+                            folder = rec.optString("folder", "Downloaded"),
+                            isBuiltIn = false
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+
         // Прямое физическое сканирование папок (важно для скачанных треков Яндекс Музыки «Мне нравится»,
-        // папок Download и USB-флешек ГУ Changan UNI-S, которые MediaStore еще не проиндексировал)
+        // папок Download / Music/Downloaded и USB-флешек ГУ Changan UNI-S)
         val scannedDiskSongs = scanPhysicalAudioFolders(indexedPaths)
         songList.addAll(scannedDiskSongs)
 
         // Добавляем встроенные тестовые треки в самое начало списка
         songList.addAll(0, BUILT_IN_TEST_TRACKS)
-        songList
+
+        // Накладываем сохранённые пользовательские метаданные, теги и счетчики прослушиваний из TrackDatabase
+        com.tohsoft.music.data.db.TrackDatabase(context).applyRecordsToSongs(songList)
     }
 
     private fun resolveFolderLabel(path: String, relPath: String, album: String): String {
@@ -227,6 +271,7 @@ class MusicRepository(private val context: Context) {
             combined.contains("usbotg", ignoreCase = true) ||
             combined.contains("/mnt/usb", ignoreCase = true) ||
             combined.contains("Changan", ignoreCase = true) -> "ChanganUSB"
+            combined.contains("Downloaded", ignoreCase = true) -> "Downloaded"
             combined.contains("Download", ignoreCase = true) -> "Download"
             path.isNotBlank() -> path.substringBeforeLast('/', "").substringAfterLast('/').ifBlank { "Music" }
             relPath.isNotBlank() -> relPath.trimEnd('/').substringAfterLast('/').ifBlank { "Music" }
@@ -240,9 +285,11 @@ class MusicRepository(private val context: Context) {
         val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
+        dirs.add(File(musicDir, "Downloaded"))
         dirs.add(File(musicDir, "YandexMusic/Мне нравится"))
         dirs.add(File(musicDir, "YandexMusic"))
         dirs.add(musicDir)
+        context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let { dirs.add(it) }
         dirs.add(File(downloadDir, "YandexMusic"))
         dirs.add(downloadDir)
         dirs.add(File(extRoot, "YandexMusic"))
@@ -282,75 +329,14 @@ class MusicRepository(private val context: Context) {
     }
 
     private fun scanPhysicalAudioFolders(alreadyIndexedPaths: Set<String>): List<Song> {
-        val discovered = mutableListOf<Song>()
-        val audioExts = setOf("mp3", "m4a", "flac", "wav", "ogg", "aac", "opus")
-        val newlyFoundPaths = mutableListOf<String>()
-
-        collectCandidateDirectories().forEach { rootDir ->
+        val scanner = com.tohsoft.music.data.scanner.StorageScanner(context)
+        val result = scanner.scanPublicMusicDirectories(alreadyIndexedPaths)
+        if (result.scannedPaths.isNotEmpty()) {
             try {
-                rootDir.walkTopDown().maxDepth(4).forEach { file ->
-                    if (!file.isFile || !file.canRead() || file.length() < 8192L) return@forEach
-                    if (file.extension.lowercase() !in audioExts) return@forEach
-
-                    val absPath = file.absolutePath
-                    if (absPath.lowercase() in alreadyIndexedPaths) return@forEach
-
-                    var title = file.nameWithoutExtension
-                    var artist = "Неизвестный исполнитель"
-                    var album = file.parentFile?.name ?: "Локальная папка"
-                    var durationMs = 180_000L
-
-                    // Парсим имя файла вида "Artist - Title.mp3"
-                    if (title.contains(" - ")) {
-                        val parts = title.split(" - ", limit = 2)
-                        artist = parts[0].trim().ifBlank { artist }
-                        title = parts[1].trim().ifBlank { title }
-                    }
-
-                    // Читаем реальные ID3-теги и длительность через MediaMetadataRetriever
-                    val retriever = MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(absPath)
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }?.let { title = it }
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }?.let { artist = it }
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.takeIf { it.isNotBlank() }?.let { album = it }
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { dur ->
-                            if (dur >= 5000L) durationMs = dur
-                        }
-                    } catch (_: Exception) {
-                        // Неподдерживаемый/поврежденный заголовок — используем данные имени файла
-                    } finally {
-                        try { retriever.release() } catch (_: Exception) {}
-                    }
-
-                    val folderLabel = resolveFolderLabel(absPath, "", album)
-                    discovered.add(
-                        Song(
-                            id = -Math.abs(absPath.hashCode().toLong()) - 1000L,
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            durationMs = durationMs,
-                            contentUri = Uri.fromFile(file),
-                            dataPath = absPath,
-                            genre = if (folderLabel == "YandexMusic") "Яндекс Музыка" else "Скачано в папку",
-                            folder = folderLabel,
-                            isBuiltIn = false
-                        )
-                    )
-                    newlyFoundPaths.add(absPath)
-                }
-            } catch (_: Exception) {
-            }
-        }
-
-        if (newlyFoundPaths.isNotEmpty()) {
-            try {
-                MediaScannerConnection.scanFile(context, newlyFoundPaths.toTypedArray(), null, null)
+                MediaScannerConnection.scanFile(context, result.scannedPaths.toTypedArray(), null, null)
             } catch (_: Exception) {}
         }
-
-        return discovered
+        return result.songs
     }
 
     private val prefs = context.getSharedPreferences("mp3pro_playlists_store", Context.MODE_PRIVATE)

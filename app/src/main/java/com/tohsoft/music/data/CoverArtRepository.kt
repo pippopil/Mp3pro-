@@ -47,50 +47,58 @@ class CoverArtRepository(private val context: Context) {
         val genre: String,
         val audioUrl: String,
         val coverUrl: String,
-        val durationMs: Long
+        val durationMs: Long,
+        val isPreview: Boolean = false
     )
 
     /**
-     * Живой глобальный поиск музыки в сети по названию, артисту или жанру через открытый API.
+     * Живой глобальный поиск музыки: сначала полные треки (Audius Open Streaming API и Jamendo CC MP3),
+     * и только если полных треков не найдено — iTunes Search (честно помеченный как превью 30 сек).
      */
     suspend fun searchOnlineMusic(query: String): List<OnlineMusicTrack> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
         val encodedQuery = URLEncoder.encode(trimmed, "UTF-8")
-        val itunesUrl = "https://itunes.apple.com/search?term=" + encodedQuery + "&media=music&entity=song&limit=30"
-
-        val request = Request.Builder()
-            .url(itunesUrl)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-            .build()
-
         val list = mutableListOf<OnlineMusicTrack>()
+
+        // 1. Audius Open Streaming API (полные треки без ограничения 30 секунд)
         try {
-            httpClient.newCall(request).execute().use { response ->
+            val audiusUrl = "https://discoveryprovider.audius.co/v1/tracks/search?query=" + encodedQuery + "&limit=15&app_name=MP3PlayerPro"
+            val audiusReq = Request.Builder()
+                .url(audiusUrl)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                .build()
+            httpClient.newCall(audiusReq).execute().use { response ->
                 if (response.isSuccessful) {
                     val jsonString = response.body?.string() ?: ""
                     if (jsonString.isNotBlank()) {
                         val json = JSONObject(jsonString)
-                        val results = json.optJSONArray("results")
-                        if (results != null) {
-                            for (i in 0 until results.length()) {
-                                val item = results.getJSONObject(i)
-                                val previewUrl = item.optString("previewUrl")
-                                if (previewUrl.isNullOrBlank()) continue
-
-                                val rawArtUrl = item.optString("artworkUrl100")
-                                val hdArtUrl = rawArtUrl.replace("100x100bb.jpg", "600x600bb.jpg")
+                        val items = json.optJSONArray("data")
+                        if (items != null) {
+                            for (i in 0 until items.length()) {
+                                val item = items.optJSONObject(i) ?: continue
+                                val trackIdStr = item.optString("id")
+                                if (trackIdStr.isBlank()) continue
+                                val durSec = item.optLong("duration", 180L)
+                                if (durSec < 45L) continue
+                                val userObj = item.optJSONObject("user")
+                                val artworkObj = item.optJSONObject("artwork")
+                                val cover = artworkObj?.optString("1000x1000")
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: artworkObj?.optString("480x480")?.takeIf { it.isNotBlank() }
+                                    ?: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80"
 
                                 list.add(
                                     OnlineMusicTrack(
-                                        trackId = item.optLong("trackId"),
-                                        title = item.optString("trackName", "Без названия"),
-                                        artist = item.optString("artistName", "Неизвестный исполнитель"),
-                                        album = item.optString("collectionName", "Сингл"),
-                                        genre = item.optString("primaryGenreName", "Музыка"),
-                                        audioUrl = previewUrl,
-                                        coverUrl = hdArtUrl,
-                                        durationMs = item.optLong("trackTimeMillis", 30000L)
+                                        trackId = trackIdStr.hashCode().toLong(),
+                                        title = item.optString("title", "Без названия"),
+                                        artist = userObj?.optString("name", "Исполнитель") ?: "Исполнитель",
+                                        album = "Полный трек (Audius)",
+                                        genre = item.optString("genre", "Music"),
+                                        audioUrl = "https://discoveryprovider.audius.co/v1/tracks/" + trackIdStr + "/stream?app_name=MP3PlayerPro",
+                                        coverUrl = cover,
+                                        durationMs = durSec * 1000L,
+                                        isPreview = false
                                     )
                                 )
                             }
@@ -102,10 +110,10 @@ class CoverArtRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        // Резервный источник Jamendo Music для гарантированного нахождения и скачивания полных MP3 треков
-        if (list.isEmpty()) {
+        // 2. Jamendo Full CC MP3 Catalog (полные бесплатные MP3 треки без обрезки)
+        if (list.size < 8) {
             try {
-                val jamendoUrl = "https://api.jamendo.com/v3.0/tracks/?client_id=56d30c95&format=json&limit=25&namesearch=" + encodedQuery + "&include=musicinfo"
+                val jamendoUrl = "https://api.jamendo.com/v3.0/tracks/?client_id=56d30c95&format=json&limit=15&namesearch=" + encodedQuery + "&include=musicinfo"
                 val jamendoReq = Request.Builder()
                     .url(jamendoUrl)
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
@@ -124,7 +132,7 @@ class CoverArtRepository(private val context: Context) {
                                     val artUrl = item.optString("album_image", item.optString("image"))
                                     val trackTitle = item.optString("name", "Трек")
                                     val artistName = item.optString("artist_name", "Исполнитель")
-                                    val albumName = item.optString("album_name", "Jamendo Free")
+                                    val albumName = item.optString("album_name", "Jamendo Full Track")
                                     val durationSec = item.optLong("duration", 180L)
 
                                     list.add(
@@ -133,10 +141,57 @@ class CoverArtRepository(private val context: Context) {
                                             title = trackTitle,
                                             artist = artistName,
                                             album = albumName,
-                                            genre = "Jamendo HQ",
+                                            genre = "Jamendo Full MP3",
                                             audioUrl = audioStream,
                                             coverUrl = if (artUrl.isNotBlank()) artUrl else "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80",
-                                            durationMs = durationSec * 1000L
+                                            durationMs = durationSec * 1000L,
+                                            isPreview = false
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 3. Резервный iTunes Search только если полных треков < 4 (честно помечаем длительность 30000ms и isPreview=true)
+        if (list.size < 4) {
+            try {
+                val itunesUrl = "https://itunes.apple.com/search?term=" + encodedQuery + "&media=music&entity=song&limit=12"
+                val request = Request.Builder()
+                    .url(itunesUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val jsonString = response.body?.string() ?: ""
+                        if (jsonString.isNotBlank()) {
+                            val json = JSONObject(jsonString)
+                            val results = json.optJSONArray("results")
+                            if (results != null) {
+                                for (i in 0 until results.length()) {
+                                    val item = results.getJSONObject(i)
+                                    val previewUrl = item.optString("previewUrl")
+                                    if (previewUrl.isNullOrBlank()) continue
+
+                                    val rawArtUrl = item.optString("artworkUrl100")
+                                    val hdArtUrl = rawArtUrl.replace("100x100bb.jpg", "600x600bb.jpg")
+
+                                    list.add(
+                                        OnlineMusicTrack(
+                                            trackId = item.optLong("trackId"),
+                                            title = item.optString("trackName", "Без названия"),
+                                            artist = item.optString("artistName", "Неизвестный исполнитель"),
+                                            album = item.optString("collectionName", "Сингл") + " (Превью 30с)",
+                                            genre = item.optString("primaryGenreName", "Музыка"),
+                                            audioUrl = previewUrl,
+                                            coverUrl = hdArtUrl,
+                                            durationMs = 30000L,
+                                            isPreview = true
                                         )
                                     )
                                 }

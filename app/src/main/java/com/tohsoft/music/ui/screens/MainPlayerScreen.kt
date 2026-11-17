@@ -37,6 +37,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import com.tohsoft.music.data.model.Song
+import com.tohsoft.music.data.streaming.StreamingAccount
+import com.tohsoft.music.data.streaming.StreamingProvider
 import com.tohsoft.music.ui.components.CoverStyle
 import com.tohsoft.music.ui.components.PlayerCoverView
 import com.tohsoft.music.viewmodel.PlayerUiState
@@ -136,7 +138,18 @@ fun MainPlayerScreen(
     onRequestOverlayPermission: () -> Unit = {},
     onPromptDeleteSong: (Song) -> Unit = {},
     onConfirmDeleteSong: () -> Unit = {},
-    onDismissDeleteSong: () -> Unit = {}
+    onDismissDeleteSong: () -> Unit = {},
+    onOpenStorageScanner: () -> Unit = {},
+    onCloseStorageScanner: () -> Unit = {},
+    onRequestAudioPermission: () -> Unit = {},
+    onRequestAllFilesPermission: () -> Unit = {},
+    onSaveTrackMetadata: (Long, String, String, String, String, String, List<String>) -> Unit = { _, _, _, _, _, _, _ -> },
+    onSelectTagFilter: (String) -> Unit = {},
+    onOpenAccountsModal: () -> Unit = {},
+    onCloseAccountsModal: () -> Unit = {},
+    onConnectAccount: (String, String, String) -> Unit = { _, _, _ -> },
+    onSelectActiveAccount: (String?) -> Unit = {},
+    onRemoveAccount: (String) -> Unit = {}
 ) {
     val bgBrush = Brush.verticalGradient(
         listOf(ColorDarkBgTop, ColorDarkBgMid, ColorDarkBgBottom)
@@ -156,7 +169,10 @@ fun MainPlayerScreen(
             topBar = {
                 TopTabsBar(
                     activeTab = uiState.activeTab,
+                    accountsCount = uiState.streamingAccounts.size,
+                    hasActiveAccount = uiState.activeAccountId != null,
                     onTabSelected = onTabSelected,
+                    onOpenAccountsModal = onOpenAccountsModal,
                     onOpenYandexModal = onOpenYandexModal,
                     onOpenEqualizer = onOpenEqualizer
                 )
@@ -183,11 +199,15 @@ fun MainPlayerScreen(
                             isPlaying = uiState.isPlaying,
                             searchQuery = uiState.searchQuery,
                             activeGenreFilter = uiState.activeGenreFilter,
+                            availableTags = uiState.availableTags,
+                            activeTagFilter = uiState.activeTagFilter,
                             sortMode = uiState.sortMode,
                             onSearchChange = onSearchQueryChanged,
                             onSelectGenreFilter = onSelectGenreFilter,
+                            onSelectTagFilter = onSelectTagFilter,
                             onSortChange = onSortChange,
                             onOpenOnlineSearch = onOpenOnlineSearch,
+                            onOpenAccountsModal = onOpenAccountsModal,
                             onSongClick = onSongClick,
                             onSongMenuClick = onSongMenuClick,
                             onOpenYandexModal = onOpenYandexModal,
@@ -205,6 +225,10 @@ fun MainPlayerScreen(
                             songs = uiState.songs,
                             selectedFolder = uiState.selectedFolder,
                             isScanning = uiState.isScanningStorage,
+                            hasAudioPermission = uiState.storageHasAudioPermission,
+                            hasAllFilesPermission = uiState.storageHasAllFilesPermission,
+                            lastScanSyncedCount = uiState.lastScanSyncedCount,
+                            onOpenStorageScanner = onOpenStorageScanner,
                             onRescanFolders = onRescanStorage,
                             onSelectFolder = onSelectFolder,
                             onPlayFolder = onPlayFolder,
@@ -235,6 +259,8 @@ fun MainPlayerScreen(
                             onOpenEqualizer = onOpenEqualizer,
                             onToggleSetting = onToggleSetting,
                             onOpenYandexModal = onOpenYandexModal,
+                            onOpenAccountsModal = onOpenAccountsModal,
+                            onOpenStorageScanner = onOpenStorageScanner,
                             onSetCoverStyle = onSetCoverStyle,
                             onRescanStorage = onRescanStorage,
                             onOpenBlacklistFolders = onOpenBlacklistFolders,
@@ -242,7 +268,8 @@ fun MainPlayerScreen(
                             onOpenSmartShare = onOpenSmartShare,
                             onFeedback = onFeedback,
                             onRateApp = onRateApp,
-                            onShareApp = onShareApp
+                            onShareApp = onShareApp,
+                            onRequestOverlayPermission = onRequestOverlayPermission
                         )
                     }
                 }
@@ -431,11 +458,16 @@ fun MainPlayerScreen(
             WallpaperModal(onDismiss = onCloseWallpaperPicker)
         }
 
-        // Song Properties Dialog
+        // Song Properties & TrackDatabase Editor Dialog
         if (uiState.isPropertiesDialogOpen && uiState.selectedSongForMenu != null) {
+            val targetSong = uiState.selectedSongForMenu
             SongPropertiesModal(
-                song = uiState.selectedSongForMenu,
-                onDismiss = onCloseProperties
+                song = targetSong,
+                onDismiss = onCloseProperties,
+                onSaveMetadata = { title, artist, album, genre, notes, tags ->
+                    onSaveTrackMetadata(targetSong.id, title, artist, album, genre, notes, tags)
+                    onCloseProperties()
+                }
             )
         }
 
@@ -485,16 +517,49 @@ fun MainPlayerScreen(
                 downloadMessage = uiState.onlineDownloadMessage
             )
         }
+
+        // StorageScanner Interactive Bridge & Permissions Modal
+        if (uiState.isStorageScannerOpen) {
+            StorageScannerModal(
+                hasAudioPermission = uiState.storageHasAudioPermission,
+                hasAllFilesPermission = uiState.storageHasAllFilesPermission,
+                isScanning = uiState.isScanningStorage,
+                lastScanSyncedCount = uiState.lastScanSyncedCount,
+                scannedDirectories = uiState.lastScanDirectories,
+                totalSongsCount = uiState.songs.size,
+                onRequestAudioPermission = onRequestAudioPermission,
+                onRequestAllFilesPermission = onRequestAllFilesPermission,
+                onScanAndSync = onRescanStorage,
+                onDismiss = onCloseStorageScanner
+            )
+        }
+
+        // Free Multi-Provider Streaming Accounts Modal
+        if (uiState.isAccountsModalOpen) {
+            StreamingAccountsModal(
+                accounts = uiState.streamingAccounts,
+                activeAccountId = uiState.activeAccountId,
+                isConnecting = uiState.isConnectingAccount,
+                statusText = uiState.accountConnectStatus,
+                onConnectAccount = onConnectAccount,
+                onSelectActiveAccount = onSelectActiveAccount,
+                onRemoveAccount = onRemoveAccount,
+                onDismiss = onCloseAccountsModal
+            )
+        }
     }
 }
 
 // ------------------------------------------------------------------------------------------------
-// TOP TABS BAR WITH YANDEX & EQ QUICK ACCESS
+// TOP TABS BAR WITH STREAMING ACCOUNTS, YANDEX & EQ QUICK ACCESS
 // ------------------------------------------------------------------------------------------------
 @Composable
 fun TopTabsBar(
     activeTab: Int,
+    accountsCount: Int = 0,
+    hasActiveAccount: Boolean = false,
     onTabSelected: (Int) -> Unit,
+    onOpenAccountsModal: () -> Unit = {},
     onOpenYandexModal: () -> Unit,
     onOpenEqualizer: () -> Unit
 ) {
@@ -528,6 +593,30 @@ fun TopTabsBar(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Ярлык бесплатных стриминг-аккаунтов (Audius / Spotify / VK / SC)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (hasActiveAccount) Color(0x3300C996) else Color(0x2238BDF8),
+                        border = BorderStroke(1.dp, if (hasActiveAccount) ColorTurquoise else Color(0x4438BDF8)),
+                        modifier = Modifier.clickable { onOpenAccountsModal() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("👤", fontSize = 12.sp)
+                            if (accountsCount > 0) {
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    text = "${accountsCount}",
+                                    color = if (hasActiveAccount) ColorTurquoise else Color(0xFF7DD3FC),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
                     // Ярлык Яндекс Музыка
                     IconButton(
                         onClick = onOpenYandexModal,
@@ -537,7 +626,7 @@ fun TopTabsBar(
                     ) {
                         Text("🟡", fontSize = 13.sp)
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     // Ярлык 10-полосный эквалайзер
                     IconButton(
                         onClick = onOpenEqualizer,
@@ -594,7 +683,7 @@ fun TopTabsBar(
 }
 
 // ------------------------------------------------------------------------------------------------
-// SONGS TAB CONTENT: SEARCH, GENRE FILTER CHIPS & SONG LIST
+// SONGS TAB CONTENT: SEARCH, SORT, GENRE & TRACKDATABASE TAG FILTER CHIPS & SONG LIST
 // ------------------------------------------------------------------------------------------------
 @Composable
 fun SongsTabContent(
@@ -603,11 +692,15 @@ fun SongsTabContent(
     isPlaying: Boolean,
     searchQuery: String,
     activeGenreFilter: String,
+    availableTags: List<String> = emptyList(),
+    activeTagFilter: String = "",
     sortMode: com.tohsoft.music.viewmodel.TrackSortMode = com.tohsoft.music.viewmodel.TrackSortMode.TITLE_ASC,
     onSearchChange: (String) -> Unit,
     onSelectGenreFilter: (String) -> Unit,
+    onSelectTagFilter: (String) -> Unit = {},
     onSortChange: (com.tohsoft.music.viewmodel.TrackSortMode) -> Unit = {},
     onOpenOnlineSearch: () -> Unit = {},
+    onOpenAccountsModal: () -> Unit = {},
     onSongClick: (Song) -> Unit,
     onSongMenuClick: (Song) -> Unit,
     onOpenYandexModal: () -> Unit,
@@ -650,6 +743,9 @@ fun SongsTabContent(
             IconButton(onClick = onShuffleAll) {
                 Text("🔀", fontSize = 18.sp)
             }
+            IconButton(onClick = onOpenAccountsModal) {
+                Text("👤", fontSize = 16.sp)
+            }
             IconButton(onClick = onOpenOnlineSearch) {
                 Text("🌐", fontSize = 16.sp)
             }
@@ -663,15 +759,21 @@ fun SongsTabContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 listOf(
                     com.tohsoft.music.viewmodel.TrackSortMode.TITLE_ASC to "🔤 А-Я",
                     com.tohsoft.music.viewmodel.TrackSortMode.ARTIST to "🎤 Артист",
                     com.tohsoft.music.viewmodel.TrackSortMode.ALBUM to "💿 Альбом",
-                    com.tohsoft.music.viewmodel.TrackSortMode.FOLDER to "📁 Папка"
+                    com.tohsoft.music.viewmodel.TrackSortMode.FOLDER to "📁 Папка",
+                    com.tohsoft.music.viewmodel.TrackSortMode.MOST_PLAYED to "▶ Популяр."
                 ).forEach { (mode, label) ->
                     val isModeActive = sortMode == mode
                     Box(
@@ -685,7 +787,8 @@ fun SongsTabContent(
                             text = label,
                             fontSize = 10.sp,
                             fontWeight = if (isModeActive) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isModeActive) Color(0xFF090D1E) else Color.White
+                            color = if (isModeActive) Color(0xFF090D1E) else Color.White,
+                            maxLines = 1
                         )
                     }
                 }
@@ -726,6 +829,53 @@ fun SongsTabContent(
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                     )
+                }
+            }
+        }
+
+        // TrackDatabase User #Tag Filter Chips
+        if (availableTags.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item {
+                    val allActive = activeTagFilter.isBlank()
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (allActive) Color(0x3338BDF8) else Color(0x11FFFFFF),
+                        border = BorderStroke(1.dp, if (allActive) Color(0xFF38BDF8) else Color(0x22FFFFFF)),
+                        modifier = Modifier.clickable { onSelectTagFilter("") }
+                    ) {
+                        Text(
+                            text = "#все-теги",
+                            color = if (allActive) Color(0xFF7DD3FC) else ColorTextMuted,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+                items(availableTags) { tag ->
+                    val isTagActive = activeTagFilter.equals(tag, ignoreCase = true)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isTagActive) Color(0xFF38BDF8) else Color(0xFF131D38),
+                        border = BorderStroke(1.dp, if (isTagActive) Color(0xFF38BDF8) else Color(0x3338BDF8)),
+                        modifier = Modifier.clickable {
+                            onSelectTagFilter(if (isTagActive) "" else tag)
+                        }
+                    ) {
+                        Text(
+                            text = "#${tag}",
+                            color = if (isTagActive) Color(0xFF060919) else Color(0xFF93C5FD),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
         }
@@ -929,13 +1079,64 @@ fun SongListItem(
                         )
                     }
                 }
+                if (!song.streamingProvider.isNullOrBlank()) {
+                    Surface(
+                        color = Color(0x3338BDF8),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Text(
+                            text = song.streamingProvider.uppercase(),
+                            color = Color(0xFF7DD3FC),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
                 Text(
                     text = "${song.artist} • ${song.genre}",
                     color = ColorTextMuted,
                     fontSize = 12.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+            }
+            if (song.playCount > 0 || song.tags.isNotEmpty()) {
+                Spacer(Modifier.height(3.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (song.playCount > 0) {
+                        Surface(
+                            color = Color(0x2200C996),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "▶ ${song.playCount}",
+                                color = ColorTurquoise,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                    song.tags.take(2).forEach { tag ->
+                        Surface(
+                            color = Color(0x2238BDF8),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "#${tag}",
+                                color = Color(0xFF93C5FD),
+                                fontSize = 9.sp,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -1449,6 +1650,8 @@ fun SettingsTabContent(
     onOpenEqualizer: () -> Unit,
     onToggleSetting: (String, Boolean) -> Unit,
     onOpenYandexModal: () -> Unit,
+    onOpenAccountsModal: () -> Unit = {},
+    onOpenStorageScanner: () -> Unit = {},
     onSetCoverStyle: (CoverStyle) -> Unit,
     onRescanStorage: () -> Unit = {},
     onOpenBlacklistFolders: () -> Unit = {},
@@ -1470,6 +1673,66 @@ fun SettingsTabContent(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
+        // MULTI-PROVIDER FREE STREAMING ACCOUNTS CARD (Audius, Spotify, Yandex, SC, VK)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+                .clickable(onClick = onOpenAccountsModal),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF101F38)),
+            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.55f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(Color(0x3338BDF8), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🌐", fontSize = 18.sp)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Бесплатные аккаунты и стриминг",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        val accStatus = if (uiState.streamingAccounts.isEmpty()) {
+                            "Audius (@handle без ключей), Spotify по ссылке, Яндекс, SoundCloud, VK"
+                        } else {
+                            "Подключено: ${uiState.streamingAccounts.size} • Нажмите для переключения"
+                        }
+                        Text(
+                            text = accStatus,
+                            color = Color(0xFF93C5FD),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = onOpenAccountsModal,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "Управление аккаунтами (${uiState.streamingAccounts.size})",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
         // YANDEX MUSIC HERO CARD
         Card(
             modifier = Modifier
@@ -1520,6 +1783,33 @@ fun SettingsTabContent(
                         color = Color.Black,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        // TRACKDATABASE LOCAL STATS BANNER
+        val totalPlays = uiState.songs.sumOf { it.playCount }
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF111C2D)),
+            border = BorderStroke(1.dp, Color(0x3300C996))
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🗄", fontSize = 20.sp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("TrackDatabase (Локальная база ID3 и тегов)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "Треков: ${uiState.songs.size} • Прослушиваний: ${totalPlays} • Тегов: ${uiState.availableTags.size}",
+                        color = ColorTurquoise,
+                        fontSize = 11.sp
                     )
                 }
             }
@@ -1645,7 +1935,9 @@ fun SettingsTabContent(
             modifier = Modifier.padding(vertical = 6.dp)
         )
 
-        SettingActionItem(icon = "🔍", title = "Сканирование музыки в памяти", onClick = onRescanStorage)
+        val permLabel = if (uiState.storageHasAllFilesPermission) "Полный доступ ✓" else if (uiState.storageHasAudioPermission) "Доступ медиа ✓" else "Нужны права"
+        SettingActionItem(icon = "🔍", title = "StorageScanner и папки музыки (${permLabel})", onClick = onOpenStorageScanner)
+        SettingActionItem(icon = "🌐", title = "Стриминг-аккаунты (${uiState.streamingAccounts.size})", onClick = onOpenAccountsModal)
         SettingActionItem(icon = "🎚", title = "Эквалайзер и звуковые эффекты", onClick = onOpenEqualizer)
         SettingActionItem(icon = "👁", title = "Скрыть вкладки", onClick = onHideTabsClick)
         SettingActionItem(icon = "📁", title = "Черные папки", onClick = onOpenBlacklistFolders)
@@ -2362,30 +2654,225 @@ fun WallpaperModal(onDismiss: () -> Unit) {
 }
 
 // ------------------------------------------------------------------------------------------------
-// SONG PROPERTIES MODAL
+// SONG PROPERTIES & TRACKDATABASE METADATA / TAGS EDITOR MODAL
 // ------------------------------------------------------------------------------------------------
 @Composable
-fun SongPropertiesModal(song: Song, onDismiss: () -> Unit) {
+fun SongPropertiesModal(
+    song: Song,
+    onDismiss: () -> Unit,
+    onSaveMetadata: (String, String, String, String, String, List<String>) -> Unit = { _, _, _, _, _, _ -> }
+) {
+    var titleInput by remember(song.id) { mutableStateOf(song.title) }
+    var artistInput by remember(song.id) { mutableStateOf(song.artist) }
+    var albumInput by remember(song.id) { mutableStateOf(song.album) }
+    var genreInput by remember(song.id) { mutableStateOf(song.genre) }
+    var notesInput by remember(song.id) { mutableStateOf(song.customNotes) }
+    var tagsState by remember(song.id) { mutableStateOf(song.tags) }
+    var newTagInput by remember { mutableStateOf("") }
+    val quickSuggestedTags = listOf("favorite", "changan", "bass", "rock", "chill", "workout")
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF10162A),
         title = {
-            Text("Свойства", color = Color.White, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Свойства и TrackDatabase", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Surface(
+                    color = Color(0x2200C996),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "▶ ${song.playCount} просл.",
+                        color = ColorTurquoise,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                PropertyRow("Название", song.title)
-                PropertyRow("Исполнитель", song.artist)
-                PropertyRow("Альбом", song.album)
-                PropertyRow("Длительность", song.durationFormatted)
-                PropertyRow("Битрейт", song.bitrate)
-                PropertyRow("Жанр", song.genre)
-                PropertyRow("Путь", song.dataPath)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 430.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = titleInput,
+                    onValueChange = { titleInput = it },
+                    label = { Text("Название трека", color = ColorTextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0x44FFFFFF)
+                    )
+                )
+                OutlinedTextField(
+                    value = artistInput,
+                    onValueChange = { artistInput = it },
+                    label = { Text("Исполнитель", color = ColorTextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0x44FFFFFF)
+                    )
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = albumInput,
+                        onValueChange = { albumInput = it },
+                        label = { Text("Альбом", color = ColorTextMuted, fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = ColorTurquoise,
+                            unfocusedBorderColor = Color(0x44FFFFFF)
+                        )
+                    )
+                    OutlinedTextField(
+                        value = genreInput,
+                        onValueChange = { genreInput = it },
+                        label = { Text("Жанр", color = ColorTextMuted, fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = ColorTurquoise,
+                            unfocusedBorderColor = Color(0x44FFFFFF)
+                        )
+                    )
+                }
+                OutlinedTextField(
+                    value = notesInput,
+                    onValueChange = { notesInput = it },
+                    label = { Text("Личная заметка", color = ColorTextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0x44FFFFFF)
+                    )
+                )
+
+                Text("Пользовательские #теги:", color = Color(0xFF93C5FD), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                if (tagsState.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(tagsState) { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0x3338BDF8),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                modifier = Modifier.clickable {
+                                    tagsState = tagsState.filterNot { it.equals(tag, ignoreCase = true) }
+                                }
+                            ) {
+                                Text(
+                                    text = "#${tag} ✕",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newTagInput,
+                        onValueChange = { newTagInput = it },
+                        placeholder = { Text("Новый #тег...", color = Color(0x66FFFFFF), fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF38BDF8),
+                            unfocusedBorderColor = Color(0x44FFFFFF)
+                        )
+                    )
+                    Button(
+                        onClick = {
+                            val clean = newTagInput.trim().removePrefix("#").lowercase()
+                            if (clean.isNotBlank() && tagsState.none { it.equals(clean, ignoreCase = true) }) {
+                                tagsState = tagsState + clean
+                                newTagInput = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                    ) {
+                        Text("+ Тег", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(quickSuggestedTags) { sTag ->
+                        val exists = tagsState.any { it.equals(sTag, ignoreCase = true) }
+                        if (!exists) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0x1AFFFFFF),
+                                modifier = Modifier.clickable {
+                                    tagsState = tagsState + sTag
+                                }
+                            ) {
+                                Text(
+                                    text = "+ #${sTag}",
+                                    color = ColorTextMuted,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Divider(color = Color(0x22FFFFFF), modifier = Modifier.padding(vertical = 2.dp))
+                PropertyRow("Длительность / Битрейт", "${song.durationFormatted} • ${song.bitrate}")
+                PropertyRow("Путь файла", song.dataPath.ifBlank { song.contentUri.toString() })
             }
         },
         confirmButton = {
+            Button(
+                onClick = {
+                    val pendingTag = newTagInput.trim().removePrefix("#").lowercase()
+                    val finalTags = if (pendingTag.isNotBlank() && tagsState.none { it.equals(pendingTag, ignoreCase = true) }) {
+                        tagsState + pendingTag
+                    } else {
+                        tagsState
+                    }
+                    onSaveMetadata(titleInput, artistInput, albumInput, genreInput, notesInput, finalTags)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+            ) {
+                Text("Сохранить", color = Color(0xFF070B18), fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("OK", color = ColorTurquoise, fontWeight = FontWeight.Bold)
+                Text("Отмена", color = ColorTextMuted)
             }
         }
     )
@@ -2395,7 +2882,7 @@ fun SongPropertiesModal(song: Song, onDismiss: () -> Unit) {
 fun PropertyRow(label: String, value: String) {
     Column {
         Text(label, color = ColorTextMuted, fontSize = 12.sp)
-        Text(value, color = Color.White, fontSize = 14.sp)
+        Text(value, color = Color.White, fontSize = 13.sp)
     }
 }
 
@@ -2416,6 +2903,10 @@ fun FoldersTabContent(
     songs: List<Song>,
     selectedFolder: String?,
     isScanning: Boolean = false,
+    hasAudioPermission: Boolean = false,
+    hasAllFilesPermission: Boolean = false,
+    lastScanSyncedCount: Int = 0,
+    onOpenStorageScanner: () -> Unit = {},
     onRescanFolders: () -> Unit = {},
     onSelectFolder: (String?) -> Unit,
     onPlayFolder: (String) -> Unit,
@@ -2586,29 +3077,47 @@ fun FoldersTabContent(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Text("📁", fontSize = 20.sp)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Воспроизведение по папкам", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Column {
+                                    Text("Воспроизведение по папкам", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    val permText = if (hasAllFilesPermission) "Полный доступ к /Music ✓" else if (hasAudioPermission) "Доступ READ_MEDIA_AUDIO ✓" else "⚠ Нет доступа к файлам"
+                                    Text(
+                                        text = "${permText} • TrackDB: ${lastScanSyncedCount}",
+                                        color = if (hasAllFilesPermission || hasAudioPermission) ColorTurquoise else Color(0xFFFBBF24),
+                                        fontSize = 10.sp
+                                    )
+                                }
                             }
-                            Button(
-                                onClick = onRescanFolders,
-                                enabled = !isScanning,
-                                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    if (isScanning) "Скан..." else "🔍 Сканировать",
-                                    color = Color.Black,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = onOpenStorageScanner,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, ColorTurquoise),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("⚙ Права", color = ColorTurquoise, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = onRescanFolders,
+                                    enabled = !isScanning,
+                                    colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        if (isScanning) "Скан..." else "🔍 Скан",
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Сканирует /Music/YandexMusic/Мне нравится, Download и USB-флешку авто, чтобы найти все скачанные MP3-треки.",
+                            "StorageScanner сканирует /Music/YandexMusic/Мне нравится, Download и USB-флешку авто, синхронизируя файлы в TrackDatabase.",
                             color = ColorTextMuted,
                             fontSize = 11.sp
                         )
@@ -2884,7 +3393,7 @@ fun PlaylistsTabContent(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(pl.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text(
-                                "\$trackCount " + if (trackCount == 1) "трек" else if (trackCount in 2..4) "трека" else "треков",
+                                "$trackCount " + if (trackCount == 1) "трек" else if (trackCount in 2..4) "трека" else "треков",
                                 color = ColorTurquoise,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -3343,8 +3852,8 @@ fun OnlineMusicSearchModal(
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = track.genre + " • 320 kbps HQ",
-                                        color = ColorTurquoise,
+                                        text = if (track.isPreview) "Превью 30с • " + track.genre else "Полный трек • " + track.genre + " • 320 kbps",
+                                        color = if (track.isPreview) Color(0xFFFBBF24) else ColorTurquoise,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -3465,4 +3974,362 @@ fun OnlineMusicSearchModal(
             }
         }
     }
+}
+
+// ------------------------------------------------------------------------------------------------
+// STORAGESCANNER INTERACTIVE UI BRIDGE & PERMISSIONS MODAL
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun StorageScannerModal(
+    hasAudioPermission: Boolean,
+    hasAllFilesPermission: Boolean,
+    isScanning: Boolean,
+    lastScanSyncedCount: Int,
+    scannedDirectories: List<String>,
+    totalSongsCount: Int,
+    onRequestAudioPermission: () -> Unit,
+    onRequestAllFilesPermission: () -> Unit,
+    onScanAndSync: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF11182C),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🔍", fontSize = 20.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("StorageScanner и TrackDatabase", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Рекурсивное сканирование /Music, /Music/YandexMusic/Мне нравится, Download и синхронизация найденных треков в локальную TrackDatabase.",
+                    color = ColorTextMuted,
+                    fontSize = 12.sp
+                )
+
+                // Permission row 1: READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE
+                Surface(
+                    color = Color(0xFF19233D),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (hasAudioPermission) ColorTurquoise.copy(alpha = 0.5f) else Color(0x55FBBF24))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("READ_MEDIA_AUDIO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(
+                                text = if (hasAudioPermission) "✓ Разрешение выдано" else "Требуется доступ к аудио",
+                                color = if (hasAudioPermission) ColorTurquoise else Color(0xFFFBBF24),
+                                fontSize = 11.sp
+                            )
+                        }
+                        if (!hasAudioPermission) {
+                            Button(
+                                onClick = onRequestAudioPermission,
+                                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("Выдать", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Permission row 2: MANAGE_EXTERNAL_STORAGE (All files access)
+                Surface(
+                    color = Color(0xFF19233D),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (hasAllFilesPermission) ColorTurquoise.copy(alpha = 0.5f) else Color(0x5538BDF8))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("MANAGE_EXTERNAL_STORAGE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(
+                                text = if (hasAllFilesPermission) "✓ Полный доступ ко всем папкам" else "Нужен для /Music/YandexMusic и USB",
+                                color = if (hasAllFilesPermission) ColorTurquoise else Color(0xFF93C5FD),
+                                fontSize = 11.sp
+                            )
+                        }
+                        if (!hasAllFilesPermission) {
+                            Button(
+                                onClick = onRequestAllFilesPermission,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("Настроить", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    color = Color(0xFF0C1528),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0x22FFFFFF))
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Синхронизировано в TrackDatabase: ${lastScanSyncedCount} • Всего в плеере: ${totalSongsCount}",
+                            color = ColorTurquoise,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                        val dirsToDisplay = if (scannedDirectories.isNotEmpty()) scannedDirectories else listOf(
+                            "/storage/emulated/0/Music",
+                            "/storage/emulated/0/Music/YandexMusic/Мне нравится",
+                            "/storage/emulated/0/Music/Downloaded",
+                            "/storage/emulated/0/Download",
+                            "/storage/usbotg/Music"
+                        )
+                        dirsToDisplay.forEach { dir ->
+                            Text("• ${dir}", color = ColorTextMuted, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onScanAndSync,
+                enabled = !isScanning,
+                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise)
+            ) {
+                Text(
+                    text = if (isScanning) "Сканирование..." else "🔍 Сканировать и синхронизировать",
+                    color = Color(0xFF070B18),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть", color = ColorTextMuted)
+            }
+        }
+    )
+}
+
+// ------------------------------------------------------------------------------------------------
+// FREE MULTI-PROVIDER STREAMING ACCOUNTS MODAL (Audius, Spotify, Yandex, SoundCloud, VK)
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun StreamingAccountsModal(
+    accounts: List<StreamingAccount>,
+    activeAccountId: String?,
+    isConnecting: Boolean,
+    statusText: String,
+    onConnectAccount: (String, String, String) -> Unit,
+    onSelectActiveAccount: (String?) -> Unit,
+    onRemoveAccount: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedProvider by remember { mutableStateOf(StreamingProvider.AUDIUS) }
+    var credentialInput by remember { mutableStateOf("") }
+    var customLabelInput by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { if (!isConnecting) onDismiss() },
+        containerColor = Color(0xFF10182C),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🌐", fontSize = 20.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("Аккаунты и Стриминг (Бесплатно)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(StreamingProvider.values().toList()) { prov ->
+                        val selected = selectedProvider == prov
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selected) Color(0xFF0EA5E9) else Color(0xFF19243D),
+                            border = BorderStroke(1.dp, if (selected) Color(0xFF38BDF8) else Color(0x22FFFFFF)),
+                            modifier = Modifier.clickable {
+                                selectedProvider = prov
+                                credentialInput = ""
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = prov.displayName,
+                                    color = if (selected) Color.White else ColorTextMuted,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    color = if (selectedProvider.isFreeNoKey) Color(0x2200C996) else Color(0x22FFCC00),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (selectedProvider.isFreeNoKey) ColorTurquoise.copy(alpha = 0.4f) else ColorYandexGold.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = selectedProvider.hint,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = credentialInput,
+                    onValueChange = { credentialInput = it },
+                    label = {
+                        val lbl = when (selectedProvider) {
+                            StreamingProvider.AUDIUS -> "@handle или пусто для Топ-треков"
+                            StreamingProvider.SPOTIFY -> "Ссылка open.spotify.com/... или токен"
+                            else -> "OAuth-токен сервиса"
+                        }
+                        Text(lbl, color = ColorTextMuted, fontSize = 11.sp)
+                    },
+                    singleLine = true,
+                    enabled = !isConnecting,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = Color(0x44FFFFFF)
+                    )
+                )
+
+                OutlinedTextField(
+                    value = customLabelInput,
+                    onValueChange = { customLabelInput = it },
+                    label = { Text("Название профиля (необязательно)", color = ColorTextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    enabled = !isConnecting,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0x44FFFFFF)
+                    )
+                )
+
+                Button(
+                    onClick = {
+                        onConnectAccount(selectedProvider.id, credentialInput, customLabelInput)
+                    },
+                    enabled = !isConnecting,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = if (isConnecting) "Подключение и синхронизация..." else "➕ Подключить бесплатно",
+                        color = Color(0xFF070B18),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                if (statusText.isNotBlank()) {
+                    Text(
+                        text = statusText,
+                        color = if (statusText.contains("Ошибка", true)) Color(0xFFF87171) else ColorTurquoise,
+                        fontSize = 11.sp
+                    )
+                }
+
+                Divider(color = Color(0x22FFFFFF))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Сохранённые аккаунты (${accounts.size})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    if (activeAccountId != null) {
+                        Text(
+                            text = "Только локальные",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable { onSelectActiveAccount(null) }
+                        )
+                    }
+                }
+
+                if (accounts.isEmpty()) {
+                    Text(
+                        text = "Пока нет подключённых аккаунтов. Выберите Audius или вставьте публичную ссылку Spotify — API-ключи не требуются!",
+                        color = ColorTextMuted,
+                        fontSize = 11.sp
+                    )
+                } else {
+                    accounts.forEach { acc ->
+                        val isActive = acc.id == activeAccountId
+                        Surface(
+                            color = if (isActive) Color(0x2200C996) else Color(0xFF19243D),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (isActive) ColorTurquoise else Color(0x22FFFFFF)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectActiveAccount(if (isActive) null else acc.id) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(acc.displayName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text(
+                                        text = "${acc.providerId.uppercase()} • ${acc.tracks.size} треков" + if (isActive) " • Активен ✓" else "",
+                                        color = if (isActive) ColorTurquoise else ColorTextMuted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                TextButton(onClick = { onSelectActiveAccount(if (isActive) null else acc.id) }) {
+                                    Text(if (isActive) "Скрыть" else "Выбрать", color = ColorTurquoise, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(onClick = { onRemoveAccount(acc.id) }) {
+                                    Text("✕", color = Color(0xFFEF4444), fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (!isConnecting) {
+                TextButton(onClick = onDismiss) {
+                    Text("Готово", color = ColorTurquoise, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    )
 }
