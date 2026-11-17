@@ -174,6 +174,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             true
         )
         .setHandleAudioBecomingNoisy(true)
+        .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
 
     private var equalizerManager: EqualizerManager? = null
@@ -220,6 +221,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun ensureMediaNotificationStarted() {
+        if (exoPlayer.currentMediaItem == null || !exoPlayer.playWhenReady) return
         val app = getApplication<Application>()
         val intent = Intent(app, MediaNotificationService::class.java).apply {
             action = MediaNotificationService.ACTION_START_FOREGROUND
@@ -353,6 +355,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun startProgressTracker() {
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
+            var tickCount = 0
             while (isActive) {
                 val pos = exoPlayer.currentPosition
                 _uiState.update {
@@ -361,9 +364,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         durationMs = exoPlayer.duration.coerceAtLeast(0)
                     )
                 }
-                if (_uiState.value.rememberPlayback && _uiState.value.currentSong != null) {
+                if (tickCount % 8 == 0 && _uiState.value.rememberPlayback && _uiState.value.currentSong != null) {
                     prefs.edit().putLong("lastPositionMs", pos).apply()
                 }
+                tickCount++
                 delay(500)
             }
         }

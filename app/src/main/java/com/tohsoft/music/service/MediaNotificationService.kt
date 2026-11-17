@@ -5,9 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -173,7 +176,42 @@ class MediaNotificationService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Немедленный синхронный перевод службы в Foreground на Android 8–15,
+        // чтобы исключить ForegroundServiceDidNotStartInTimeException через ~10-30 секунд после startForegroundService()
+        promoteToForegroundImmediately()
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun promoteToForegroundImmediately() {
+        createNotificationChannel()
+        val player = sharedExoPlayer
+        val meta = player?.currentMediaItem?.mediaMetadata
+        val title = meta?.title?.toString()?.takeIf { it.isNotBlank() } ?: "MP3 Player Pro"
+        val artist = meta?.artist?.toString()?.takeIf { it.isNotBlank() } ?: "Фоновое воспроизведение"
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            0,
+            openIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(artist)
+            .setContentIntent(contentIntent)
+            .setOngoing(player?.playWhenReady == true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+        val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        } else 0
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, fgsType)
+        } catch (_: Exception) {}
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -295,7 +333,8 @@ class MediaNotificationService : MediaSessionService() {
                             return true
                         }
                         KeyEvent.KEYCODE_MEDIA_STOP -> {
-                            shutdownFromNotification()
+                            val cb = mediaCallbacks
+                            if (cb != null) cb.onPause() else sharedExoPlayer?.pause()
                             return true
                         }
                     }

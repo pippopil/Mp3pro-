@@ -420,6 +420,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onDestroy() {
+        MediaNotificationService.mediaCallbacks = null
+        MusicPlaybackService.mediaControlListener = null
         try {
             unregisterReceiver(shutdownReceiver)
         } catch (ignored: Exception) {}

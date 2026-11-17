@@ -18,6 +18,8 @@ class AudioSessionReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         val audioSessionId = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, 0)
         val packageName = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME) ?: "Сторонний плеер"
+        // Игнорируем собственные широковещательные события, чтобы не запускать вторую foreground-службу поверх MediaNotificationService
+        if (packageName == context.packageName) return
 
         val serviceIntent = Intent(context, GlobalEqualizerService::class.java).apply {
             putExtra(GlobalEqualizerService.EXTRA_PACKAGE_NAME, packageName)
