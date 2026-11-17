@@ -293,7 +293,7 @@ class StreamingAccountRepository(private val context: Context) {
             val html = httpClient.newCall(embedReq).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() ?: "" else ""
             }
-            val nextDataRegex = Regex("<script id="__NEXT_DATA__"[^>]*>(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
+            val nextDataRegex = Regex("""<script id=["']__NEXT_DATA__["'][^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
             val nextMatch = nextDataRegex.find(html)
             if (nextMatch != null) {
                 val nextJson = JSONObject(nextMatch.groupValues[1])
