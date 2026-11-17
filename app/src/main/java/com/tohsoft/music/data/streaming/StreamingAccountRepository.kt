@@ -371,7 +371,8 @@ class StreamingAccountRepository(private val context: Context) {
         val cleanToken = tokenInput.substringAfter("access_token=", tokenInput).substringBefore("&").trim()
         if (cleanToken.isBlank()) throw Exception("Введите OAuth-токен Яндекс Музыки")
         val yandexRepo = YandexMusicRepository()
-        val ids = yandexRepo.getLikedTrackIds(cleanToken).getOrElse { throw it }
+        val resolvedUid = yandexRepo.fetchAccountUid(cleanToken)
+        val ids = yandexRepo.getLikedTrackIds(cleanToken, resolvedUid).getOrElse { throw it }
         val metaList = yandexRepo.getTracksMetadata(cleanToken, ids.take(30)).getOrElse { emptyList() }
         val songs = metaList.map { yt ->
             val streamUrl = yandexRepo.getDownloadUrl(cleanToken, yt.id).getOrNull() ?: "https://api.music.yandex.net"

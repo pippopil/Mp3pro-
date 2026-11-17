@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import com.tohsoft.music.service.MediaNotificationService
 import com.tohsoft.music.service.MusicPlaybackService
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -102,7 +103,35 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             registerReceiver(shutdownReceiver, filter)
         }
 
-        // Прямой слушатель кнопок из шторки уведомлений и экрана блокировки
+        // Прямой слушатель кнопок из Media3 MediaNotificationService и шторки Android 14+
+        val sharedCallbacks = object : MediaNotificationService.MediaCallbacks {
+            override fun onPlay() {
+                runOnUiThread {
+                    if (!viewModel.uiState.value.isPlaying) viewModel.togglePlayPause()
+                }
+            }
+            override fun onPause() {
+                runOnUiThread {
+                    if (viewModel.uiState.value.isPlaying) viewModel.togglePlayPause()
+                }
+            }
+            override fun onTogglePlayPause() {
+                runOnUiThread { viewModel.togglePlayPause() }
+            }
+            override fun onNext() {
+                runOnUiThread { viewModel.nextSong() }
+            }
+            override fun onPrev() {
+                runOnUiThread { viewModel.prevSong() }
+            }
+            override fun onCloseApp() {
+                runOnUiThread {
+                    finishAffinity()
+                }
+            }
+        }
+        MediaNotificationService.mediaCallbacks = sharedCallbacks
+
         MusicPlaybackService.mediaControlListener = object : MusicPlaybackService.MediaControlListener {
             override fun onTogglePlayPause() {
                 runOnUiThread { viewModel.togglePlayPause() }
@@ -116,29 +145,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             override fun onCloseApp() {
                 runOnUiThread {
                     finishAffinity()
-                    System.exit(0)
-                }
-            }
-        }
-
-        // Непрерывная синхронизация состояния воспроизведения со шторкой уведомлений
-        lifecycleScope.launch {
-            viewModel.uiState.collect { state ->
-                val song = state.currentSong
-                if (song != null) {
-                    val notifIntent = Intent(this@MainActivity, MusicPlaybackService::class.java).apply {
-                        action = if (state.isPlaying) MusicPlaybackService.ACTION_UPDATE_NOTIFICATION else MusicPlaybackService.ACTION_PAUSE_NOTIFICATION
-                        putExtra("extra_title", song.title)
-                        putExtra("extra_artist", song.artist)
-                        putExtra("extra_is_playing", state.isPlaying)
-                    }
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(notifIntent)
-                        } else {
-                            startService(notifIntent)
-                        }
-                    } catch (ignored: Exception) {}
                 }
             }
         }
@@ -375,13 +381,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onStop() {
         super.onStop()
         val state = viewModel.uiState.value
-        if (state.currentSong != null) {
-            // Размещаем уведомление управления в выдвижной шторке Android
-            val notifIntent = Intent(this, MusicPlaybackService::class.java).apply {
-                action = if (state.isPlaying) MusicPlaybackService.ACTION_UPDATE_NOTIFICATION else MusicPlaybackService.ACTION_PAUSE_NOTIFICATION
-                putExtra("extra_title", state.currentSong.title)
-                putExtra("extra_artist", state.currentSong.artist)
-                putExtra("extra_is_playing", state.isPlaying)
+        if (state.currentSong != null && state.isPlaying) {
+            // Запускаем/поддерживаем Media3 MediaNotificationService в фоне на Android 14+
+            val notifIntent = Intent(this, MediaNotificationService::class.java).apply {
+                action = MediaNotificationService.ACTION_START_FOREGROUND
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

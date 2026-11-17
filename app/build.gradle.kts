@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("kotlin-kapt")
 }
 
 android {
@@ -16,8 +17,8 @@ android {
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         val ciVersionName = System.getenv("VERSION_NAME")
 
-        versionCode = ciRunNumber ?: 32
-        versionName = ciVersionName ?: "1.0.0-beta32"
+        versionCode = ciRunNumber ?: 33
+        versionName = ciVersionName ?: "1.0.0-beta33"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled = true
@@ -93,12 +94,18 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3:1.3.0")
 
-    // Modern Jetpack Media3 (ExoPlayer + MediaSession) & Legacy Media Compat
+    // Modern Jetpack Media3 (ExoPlayer + MediaSessionService) & Legacy Media Compat
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
     implementation("androidx.media:media:1.7.0")
+    implementation("com.google.guava:guava:32.1.3-android")
+
+    // Room Database (Структурированная SQLite БД: TrackDao, метаданные, счётчики прослушиваний и #теги)
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
 
     // Coil для загрузки обложек
     implementation("io.coil-kt:coil-compose:2.7.0")

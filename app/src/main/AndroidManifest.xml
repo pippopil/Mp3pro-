@@ -87,9 +87,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Служба воспроизведения Jetpack Media3 с поддержкой MediaSession и Android Auto -->
+        <!-- Основная служба уведомлений Media3 MediaSessionService для Android 14+ и Android Auto -->
         <service
-            android:name=".service.MusicPlaybackService"
+            android:name=".service.MediaNotificationService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
@@ -98,6 +98,12 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Служба совместимости для старых интентов и команд уведомлений -->
+        <service
+            android:name=".service.MusicPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Плавающий островок фронтальной камеры (Dynamic Camera Island) -->
         <service

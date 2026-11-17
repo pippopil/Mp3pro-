@@ -58,9 +58,35 @@ class YandexMusicRepository(
     }
 
     /**
+     * Получить UID авторизованного пользователя Яндекс Музыки через /account/status (fallback: "me")
+     */
+    suspend fun fetchAccountUid(token: String): String = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$BASE_API_URL/account/status")
+                .header("Authorization", "OAuth $token")
+                .header("Accept", "application/json")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext "me"
+                val body = response.body?.string() ?: return@withContext "me"
+                val uid = JSONObject(body)
+                    .optJSONObject("result")
+                    ?.optJSONObject("account")
+                    ?.opt("uid")
+                    ?.toString()
+                    ?.takeIf { it.isNotBlank() && it != "null" }
+                uid ?: "me"
+            }
+        } catch (_: Exception) {
+            "me"
+        }
+    }
+
+    /**
      * Получить список идентификаторов всех сохраненных (лайкнутых) треков пользователя
      */
-    suspend fun getLikedTrackIds(token: String, userId: String): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun getLikedTrackIds(token: String, userId: String = "me"): Result<List<String>> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
                 .url("$BASE_API_URL/users/$userId/likes/tracks")

@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.tohsoft.music.audio.EqualizerManager
@@ -24,6 +25,7 @@ import com.tohsoft.music.data.streaming.StreamingAccount
 import com.tohsoft.music.data.streaming.StreamingAccountRepository
 import com.tohsoft.music.data.streaming.StreamingProvider
 import com.tohsoft.music.data.yandex.YandexMusicRepository
+import com.tohsoft.music.service.MediaNotificationService
 import com.tohsoft.music.ui.components.CoverStyle
 import java.io.File
 import java.io.FileOutputStream
@@ -188,12 +190,47 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         loadSavedPreferences()
         refreshStoragePermissions()
         setupPlayerListener()
+        MediaNotificationService.attachPlayer(exoPlayer)
         loadSongs()
         try {
             equalizerManager = EqualizerManager(exoPlayer.audioSessionId)
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun buildRichMediaItem(song: Song): MediaItem {
+        val artUri = song.coverUrl?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) } ?: song.albumArtUri
+        val metadata = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.artist)
+            .setAlbumTitle(song.album)
+            .setGenre(song.genre)
+            .apply {
+                if (artUri != null) {
+                    setArtworkUri(artUri)
+                }
+            }
+            .build()
+        return MediaItem.Builder()
+            .setMediaId(song.id.toString())
+            .setUri(song.contentUri)
+            .setMediaMetadata(metadata)
+            .build()
+    }
+
+    private fun ensureMediaNotificationStarted() {
+        val app = getApplication<Application>()
+        val intent = Intent(app, MediaNotificationService::class.java).apply {
+            action = MediaNotificationService.ACTION_START_FOREGROUND
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                app.startForegroundService(intent)
+            } else {
+                app.startService(intent)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun loadSavedPreferences() {
@@ -432,7 +469,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
             if (restoredSong != null && lastPos > 0) {
                 try {
-                    exoPlayer.setMediaItem(MediaItem.fromUri(restoredSong.contentUri))
+                    exoPlayer.setMediaItem(buildRichMediaItem(restoredSong))
                     exoPlayer.prepare()
                     exoPlayer.seekTo(lastPos)
                 } catch (e: Exception) {
@@ -504,7 +541,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun playSong(song: Song) {
         try {
-            val mediaItem = MediaItem.fromUri(song.contentUri)
+            MediaNotificationService.attachPlayer(exoPlayer)
+            val mediaItem = buildRichMediaItem(song)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
 
@@ -522,6 +560,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 exoPlayer.volume = 1.0f
                 exoPlayer.play()
             }
+            ensureMediaNotificationStarted()
 
             val sessionId = exoPlayer.audioSessionId
             if (sessionId > 0) {
@@ -567,6 +606,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 playSong(_uiState.value.currentSong!!)
             } else {
                 exoPlayer.play()
+                ensureMediaNotificationStarted()
             }
         }
     }

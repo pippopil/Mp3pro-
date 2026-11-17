@@ -169,52 +169,6 @@ class StorageScanner(private val context: Context) {
 
     private fun syncSongsToTrackDatabase(songs: List<Song>): Int {
         if (songs.isEmpty()) return 0
-        val existingRaw = trackDbPrefs.getString("records_json", null)
-        val rootObj = try {
-            if (!existingRaw.isNullOrBlank()) JSONObject(existingRaw) else JSONObject()
-        } catch (_: Exception) {
-            JSONObject()
-        }
-
-        val now = System.currentTimeMillis()
-        songs.forEach { song ->
-            val key = song.id.toString()
-            val prev = rootObj.optJSONObject(key)
-            val tagSet = linkedSetOf<String>()
-            val prevTags = prev?.optJSONArray("tags")
-            if (prevTags != null) {
-                for (i in 0 until prevTags.length()) {
-                    val t = prevTags.optString(i).trim().lowercase()
-                    if (t.isNotBlank()) tagSet.add(t)
-                }
-            }
-            tagSet.add("scanned")
-            tagSet.add("local-music")
-            if (song.folder.equals("YandexMusic", ignoreCase = true)) tagSet.add("yandex-likes")
-            if (song.folder.equals("Downloaded", ignoreCase = true)) tagSet.add("downloaded")
-            val tagsJson = JSONArray()
-            tagSet.forEach { tagsJson.put(it) }
-
-            val rec = JSONObject().apply {
-                put("trackId", key)
-                put("title", prev?.optString("title")?.takeIf { it.isNotBlank() } ?: song.title)
-                put("artist", prev?.optString("artist")?.takeIf { it.isNotBlank() } ?: song.artist)
-                put("album", prev?.optString("album")?.takeIf { it.isNotBlank() } ?: song.album)
-                put("genre", prev?.optString("genre")?.takeIf { it.isNotBlank() } ?: song.genre)
-                put("notes", prev?.optString("notes") ?: song.customNotes)
-                put("folder", song.folder)
-                put("filePath", song.dataPath)
-                put("playCount", prev?.optInt("playCount", 0) ?: 0)
-                if (prev != null && prev.has("lastPlayedAt")) {
-                    put("lastPlayedAt", prev.optLong("lastPlayedAt"))
-                }
-                put("tags", tagsJson)
-                put("syncedAt", now)
-            }
-            rootObj.put(key, rec)
-        }
-
-        trackDbPrefs.edit().putString("records_json", rootObj.toString()).apply()
-        return songs.size
+        return com.tohsoft.music.data.db.TrackDatabase(context).syncScannedSongs(songs)
     }
 }

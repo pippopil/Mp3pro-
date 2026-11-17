@@ -2,57 +2,95 @@ package com.tohsoft.music.data.db
 
 import android.content.Context
 import com.tohsoft.music.data.model.Song
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 class TrackDatabase(private val context: Context) {
 
-    private val prefs = context.getSharedPreferences("mp3pro_track_database", Context.MODE_PRIVATE)
+    private val dao: TrackDao by lazy { RoomTrackDatabase.getInstance(context).trackDao() }
+    private val legacyPrefs = context.getSharedPreferences("mp3pro_track_database", Context.MODE_PRIVATE)
     private val backupFile: File by lazy { File(context.filesDir, "track_database_backup.json") }
 
-    private fun readRootObject(): JSONObject {
-        val raw = prefs.getString("records_json", null)
-        if (!raw.isNullOrBlank()) {
-            try {
-                return JSONObject(raw)
-            } catch (_: Exception) {}
-        }
-        if (backupFile.exists()) {
-            try {
-                val diskRaw = backupFile.readText()
-                if (diskRaw.isNotBlank()) return JSONObject(diskRaw)
-            } catch (_: Exception) {}
-        }
-        return JSONObject()
+    init {
+        migrateLegacyJsonIfNeeded()
     }
 
-    private fun writeRootObject(root: JSONObject) {
-        val serialized = root.toString()
-        prefs.edit().putString("records_json", serialized).apply()
-        try {
-            backupFile.writeText(serialized)
-        } catch (_: Exception) {}
+    private fun migrateLegacyJsonIfNeeded() {
+        if (legacyPrefs.getBoolean("migrated_to_room_v1", false)) return
+        val raw = legacyPrefs.getString("records_json", null)
+            ?: if (backupFile.exists()) try { backupFile.readText() } catch (_: Exception) { null } else null
+
+        if (!raw.isNullOrBlank()) {
+            try {
+                val root = JSONObject(raw)
+                val entities = mutableListOf<TrackEntity>()
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val rec = root.optJSONObject(key) ?: continue
+                    val id = key.toLongOrNull() ?: rec.optString("trackId").toLongOrNull() ?: continue
+                    val tagList = mutableListOf<String>()
+                    val arr = rec.optJSONArray("tags")
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) {
+                            val t = arr.optString(i).trim().lowercase()
+                            if (t.isNotBlank()) tagList.add(t)
+                        }
+                    }
+                    entities.add(
+                        TrackEntity(
+                            trackId = id,
+                            title = rec.optString("title", "Трек"),
+                            artist = rec.optString("artist", "Неизвестный исполнитель"),
+                            album = rec.optString("album", "Music"),
+                            genre = rec.optString("genre", "Музыка"),
+                            folder = rec.optString("folder", ""),
+                            filePath = rec.optString("filePath", ""),
+                            customTitle = rec.optString("customTitle").takeIf { it.isNotBlank() },
+                            customArtist = rec.optString("customArtist").takeIf { it.isNotBlank() },
+                            customAlbum = rec.optString("customAlbum").takeIf { it.isNotBlank() },
+                            customGenre = rec.optString("customGenre").takeIf { it.isNotBlank() },
+                            notes = rec.optString("notes", ""),
+                            playCount = rec.optInt("playCount", 0),
+                            lastPlayedAt = if (rec.has("lastPlayedAt")) rec.optLong("lastPlayedAt") else null,
+                            tags = tagList.distinct(),
+                            updatedAt = rec.optLong("updatedAt", System.currentTimeMillis())
+                        )
+                    )
+                }
+                if (entities.isNotEmpty()) {
+                    dao.insertOrReplaceAllSync(entities)
+                }
+            } catch (_: Exception) {}
+        }
+        legacyPrefs.edit().putBoolean("migrated_to_room_v1", true).apply()
     }
 
     fun incrementPlayCount(song: Song): Int {
-        val root = readRootObject()
-        val key = song.id.toString()
-        val existing = root.optJSONObject(key) ?: JSONObject().apply {
-            put("trackId", key)
-            put("title", song.title)
-            put("artist", song.artist)
-            put("album", song.album)
-            put("genre", song.genre)
-            put("folder", song.folder)
-            put("filePath", song.dataPath)
+        val now = System.currentTimeMillis()
+        val existing = dao.getTrackByIdSync(song.id)
+        if (existing == null) {
+            val nextCount = song.playCount + 1
+            dao.insertOrReplaceSync(
+                TrackEntity(
+                    trackId = song.id,
+                    title = song.title,
+                    artist = song.artist,
+                    album = song.album,
+                    genre = song.genre,
+                    folder = song.folder,
+                    filePath = song.dataPath,
+                    notes = song.customNotes,
+                    playCount = nextCount,
+                    lastPlayedAt = now,
+                    tags = song.tags,
+                    updatedAt = now
+                )
+            )
+            return nextCount
         }
-        val nextCount = existing.optInt("playCount", song.playCount) + 1
-        existing.put("playCount", nextCount)
-        existing.put("lastPlayedAt", System.currentTimeMillis())
-        root.put(key, existing)
-        writeRootObject(root)
-        return nextCount
+        dao.incrementPlayCountSync(song.id, now)
+        return existing.playCount + 1
     }
 
     fun saveCustomMetadata(
@@ -64,78 +102,93 @@ class TrackDatabase(private val context: Context) {
         notes: String?,
         tags: List<String>?
     ) {
-        val root = readRootObject()
-        val key = trackId.toString()
-        val rec = root.optJSONObject(key) ?: JSONObject().apply {
-            put("trackId", key)
-            put("playCount", 0)
-        }
-        if (!title.isNullOrBlank()) rec.put("customTitle", title.trim())
-        if (!artist.isNullOrBlank()) rec.put("customArtist", artist.trim())
-        if (!album.isNullOrBlank()) rec.put("customAlbum", album.trim())
-        if (!genre.isNullOrBlank()) rec.put("customGenre", genre.trim())
-        if (notes != null) rec.put("notes", notes.trim())
+        val now = System.currentTimeMillis()
+        val existing = dao.getTrackByIdSync(trackId) ?: TrackEntity(
+            trackId = trackId,
+            title = title?.trim().orEmpty().ifBlank { "Трек" },
+            artist = artist?.trim().orEmpty().ifBlank { "Исполнитель" },
+            album = album?.trim().orEmpty().ifBlank { "Альбом" },
+            genre = genre?.trim().orEmpty().ifBlank { "Музыка" }
+        )
+        val cleanTags = tags?.map { it.trim().removePrefix("#").lowercase() }
+            ?.filter { it.isNotBlank() }
+            ?.distinct()
+            ?: existing.tags
 
-        if (tags != null) {
-            val cleanTags = tags.map { it.trim().removePrefix("#").lowercase() }
-                .filter { it.isNotBlank() }
-                .distinct()
-            val arr = JSONArray()
-            cleanTags.forEach { arr.put(it) }
-            rec.put("tags", arr)
+        dao.insertOrReplaceSync(
+            existing.copy(
+                customTitle = title?.trim()?.takeIf { it.isNotBlank() } ?: existing.customTitle,
+                customArtist = artist?.trim()?.takeIf { it.isNotBlank() } ?: existing.customArtist,
+                customAlbum = album?.trim()?.takeIf { it.isNotBlank() } ?: existing.customAlbum,
+                customGenre = genre?.trim()?.takeIf { it.isNotBlank() } ?: existing.customGenre,
+                notes = notes?.trim() ?: existing.notes,
+                tags = cleanTags,
+                updatedAt = now
+            )
+        )
+    }
+
+    fun syncScannedSongs(songs: List<Song>): Int {
+        if (songs.isEmpty()) return 0
+        val now = System.currentTimeMillis()
+        val entities = songs.map { song ->
+            val prev = dao.getTrackByIdSync(song.id)
+            val tagSet = linkedSetOf<String>()
+            prev?.tags?.forEach { if (it.isNotBlank()) tagSet.add(it.trim().lowercase()) }
+            tagSet.add("scanned")
+            tagSet.add("local-music")
+            if (song.folder.equals("YandexMusic", ignoreCase = true)) tagSet.add("yandex-likes")
+            if (song.folder.equals("Downloaded", ignoreCase = true)) tagSet.add("downloaded")
+
+            TrackEntity(
+                trackId = song.id,
+                title = prev?.title?.takeIf { it.isNotBlank() } ?: song.title,
+                artist = prev?.artist?.takeIf { it.isNotBlank() } ?: song.artist,
+                album = prev?.album?.takeIf { it.isNotBlank() } ?: song.album,
+                genre = prev?.genre?.takeIf { it.isNotBlank() } ?: song.genre,
+                folder = song.folder,
+                filePath = song.dataPath,
+                customTitle = prev?.customTitle,
+                customArtist = prev?.customArtist,
+                customAlbum = prev?.customAlbum,
+                customGenre = prev?.customGenre,
+                notes = prev?.notes ?: song.customNotes,
+                playCount = prev?.playCount ?: song.playCount,
+                lastPlayedAt = prev?.lastPlayedAt ?: song.lastPlayedAt,
+                tags = tagSet.toList(),
+                updatedAt = now
+            )
         }
-        rec.put("updatedAt", System.currentTimeMillis())
-        root.put(key, rec)
-        writeRootObject(root)
+        dao.insertOrReplaceAllSync(entities)
+        return entities.size
     }
 
     fun getAllUniqueTags(): List<String> {
-        val root = readRootObject()
         val set = linkedSetOf<String>()
-        val keys = root.keys()
-        while (keys.hasNext()) {
-            val rec = root.optJSONObject(keys.next()) ?: continue
-            val arr = rec.optJSONArray("tags") ?: continue
-            for (i in 0 until arr.length()) {
-                val tag = arr.optString(i).trim().lowercase()
-                if (tag.isNotBlank()) set.add(tag)
+        dao.getAllTracksSync().forEach { entity ->
+            entity.tags.forEach { t ->
+                val clean = t.trim().lowercase()
+                if (clean.isNotBlank()) set.add(clean)
             }
         }
         return set.toList().sorted()
     }
 
     fun applyRecordsToSongs(songs: List<Song>): List<Song> {
-        val root = readRootObject()
-        if (root.length() == 0) return songs
+        val map = dao.getAllTracksSync().associateBy { it.trackId }
+        if (map.isEmpty()) return songs
 
         return songs.map { song ->
-            val rec = root.optJSONObject(song.id.toString()) ?: return@map song
-            val customTitle = rec.optString("customTitle").takeIf { it.isNotBlank() }
-            val customArtist = rec.optString("customArtist").takeIf { it.isNotBlank() }
-            val customAlbum = rec.optString("customAlbum").takeIf { it.isNotBlank() }
-            val customGenre = rec.optString("customGenre").takeIf { it.isNotBlank() }
-            val notes = rec.optString("notes", song.customNotes)
-            val playCount = rec.optInt("playCount", song.playCount)
-            val lastPlayed = if (rec.has("lastPlayedAt")) rec.optLong("lastPlayedAt") else song.lastPlayedAt
-
-            val tagList = mutableListOf<String>()
-            val arr = rec.optJSONArray("tags")
-            if (arr != null) {
-                for (i in 0 until arr.length()) {
-                    val t = arr.optString(i).trim()
-                    if (t.isNotBlank()) tagList.add(t)
-                }
-            }
-
+            val rec = map[song.id] ?: return@map song
             song.copy(
-                title = customTitle ?: song.title,
-                artist = customArtist ?: song.artist,
-                album = customAlbum ?: song.album,
-                genre = customGenre ?: song.genre,
-                customNotes = notes,
-                playCount = playCount,
-                lastPlayedAt = lastPlayed,
-                tags = if (tagList.isNotEmpty()) tagList else song.tags
+                title = rec.customTitle ?: song.title,
+                artist = rec.customArtist ?: song.artist,
+                album = rec.customAlbum ?: song.album,
+                genre = rec.customGenre ?: song.genre,
+                customNotes = rec.notes,
+                playCount = rec.playCount,
+                lastPlayedAt = rec.lastPlayedAt ?: song.lastPlayedAt,
+                tags = if (rec.tags.isNotEmpty()) rec.tags else song.tags
             )
         }
     }
