@@ -204,6 +204,8 @@ fun MainPlayerScreen(
                         FoldersTabContent(
                             songs = uiState.songs,
                             selectedFolder = uiState.selectedFolder,
+                            isScanning = uiState.isScanningStorage,
+                            onRescanFolders = onRescanStorage,
                             onSelectFolder = onSelectFolder,
                             onPlayFolder = onPlayFolder,
                             onSongClick = onSongClick,
@@ -2413,15 +2415,16 @@ private fun formatMs(ms: Long): String {
 fun FoldersTabContent(
     songs: List<Song>,
     selectedFolder: String?,
+    isScanning: Boolean = false,
+    onRescanFolders: () -> Unit = {},
     onSelectFolder: (String?) -> Unit,
     onPlayFolder: (String) -> Unit,
     onSongClick: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit
 ) {
-    // Group songs into folders
+    // Group songs into folders (Yandex Music "Мне нравится", Download, Changan USB, Music)
     val folderMap = remember(songs) {
         val map = mutableMapOf<String, MutableList<Song>>()
-        // Pre-initialize standard known folders
         map["YandexMusic"] = mutableListOf()
         map["Download"] = mutableListOf()
         map["Music"] = mutableListOf()
@@ -2429,20 +2432,17 @@ fun FoldersTabContent(
 
         songs.forEach { s ->
             val f = when {
-                s.folder.contains("Yandex", ignoreCase = true) || s.title.contains("Yandex", ignoreCase = true) -> "YandexMusic"
+                s.folder.contains("Yandex", ignoreCase = true) ||
+                s.folder.contains("Мне нравится", ignoreCase = true) ||
+                s.dataPath.contains("YandexMusic", ignoreCase = true) ||
+                s.album.contains("Мне нравится", ignoreCase = true) ||
+                s.title.contains("Yandex", ignoreCase = true) -> "YandexMusic"
                 s.folder.contains("Download", ignoreCase = true) -> "Download"
                 s.folder.contains("Changan", ignoreCase = true) || s.folder.contains("USB", ignoreCase = true) -> "ChanganUSB"
                 s.folder.isNotBlank() -> s.folderName
                 else -> "Music"
             }
             map.getOrPut(f) { mutableListOf() }.add(s)
-        }
-        // Ensure YandexMusic and ChanganUSB have tracks for demonstration if empty
-        if (map["YandexMusic"]!!.isEmpty()) {
-            map["YandexMusic"]!!.addAll(songs.take(3))
-        }
-        if (map["ChanganUSB"]!!.isEmpty()) {
-            map["ChanganUSB"]!!.addAll(songs.drop(1).take(3))
         }
         map
     }
@@ -2500,13 +2500,13 @@ fun FoldersTabContent(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = if (selectedFolder == "YandexMusic") "Яндекс Музыка (Локальный кеш)" else selectedFolder,
+                            text = if (selectedFolder == "YandexMusic") "Яндекс Музыка — Мне нравится (Скачанные)" else selectedFolder,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
                         val folderPath = when (selectedFolder) {
-                            "YandexMusic" -> "/storage/emulated/0/Android/data/ru.yandex.music/files/"
+                            "YandexMusic" -> "/storage/emulated/0/Music/YandexMusic/Мне нравится/"
                             "Download" -> "/storage/emulated/0/Download/"
                             "ChanganUSB" -> "/storage/usbotg/Music/ (ГУ Авто)"
                             else -> "/storage/emulated/0/Music/$selectedFolder/"
@@ -2581,14 +2581,34 @@ fun FoldersTabContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("📁", fontSize = 20.sp)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Воспроизведение по папкам", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("📁", fontSize = 20.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Воспроизведение по папкам", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Button(
+                                onClick = onRescanFolders,
+                                enabled = !isScanning,
+                                colors = ButtonDefaults.buttonColors(containerColor = ColorTurquoise),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    if (isScanning) "Скан..." else "🔍 Сканировать",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Выберите нужную папку на телефоне или флешке (например, Яндекс Музыку), чтобы воспроизвести сразу все треки из неё в один клик.",
+                            "Сканирует /Music/YandexMusic/Мне нравится, Download и USB-флешку авто, чтобы найти все скачанные MP3-треки.",
                             color = ColorTextMuted,
                             fontSize = 11.sp
                         )
@@ -2607,13 +2627,13 @@ fun FoldersTabContent(
                     else -> "📁"
                 }
                 val displayName = when (fKey) {
-                    "YandexMusic" -> "Яндекс Музыка (ru.yandex.music)"
+                    "YandexMusic" -> "Яндекс Музыка — Мне нравится"
                     "Download" -> "Загрузки (Download)"
                     "ChanganUSB" -> "Флешка Changan UNI-S (USB)"
                     else -> "Папка: $fKey"
                 }
                 val pathHint = when (fKey) {
-                    "YandexMusic" -> "/storage/emulated/0/Android/data/ru.yandex.music/files/"
+                    "YandexMusic" -> "/storage/emulated/0/Music/YandexMusic/Мне нравится/"
                     "Download" -> "/storage/emulated/0/Download/"
                     "ChanganUSB" -> "/storage/usbotg/Music/ (Авто)"
                     else -> "/storage/emulated/0/Music/$fKey/"

@@ -57,7 +57,12 @@ class GlobalEqualizerService : Service() {
 
         when (action) {
             ACTION_STOP_GLOBAL -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
                 stopSelf()
                 isServiceRunning = false
                 return START_NOT_STICKY

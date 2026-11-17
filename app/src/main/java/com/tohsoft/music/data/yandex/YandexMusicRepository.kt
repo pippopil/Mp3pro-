@@ -2,6 +2,7 @@ package com.tohsoft.music.data.yandex
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -201,8 +202,10 @@ class YandexMusicRepository(
     }
 
     /**
-     * Скачивание файла в Scoped Storage (папка /Music/YandexMusic)
-     * с регистрацией в MediaStore для мгновенного появления в плеере
+     * Скачивание файла в /Music/YandexMusic/Мне нравится
+     * На Android 10+ — через MediaStore Scoped Storage;
+     * на Android 5–9 (включая ГУ Changan UNI-S) — прямой записью на диск + MediaScannerConnection.scanFile,
+     * чтобы папка гарантированно находилась при сканировании папок.
      */
     suspend fun downloadTrackToLocalStorage(
         context: Context,
@@ -216,57 +219,107 @@ class YandexMusicRepository(
             val fileName = "$safeName.mp3"
             val resolver = context.contentResolver
 
-            val contentValues = ContentValues().apply {
-                put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
-                put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
-                put(MediaStore.Audio.Media.TITLE, track.title)
-                put(MediaStore.Audio.Media.ARTIST, track.artist)
-                put(MediaStore.Audio.Media.ALBUM, track.album)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/YandexMusic")
-                    put(MediaStore.Audio.Media.IS_PENDING, 1 as Int)
-                }
-            }
-
-            val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, contentValues)
-                ?: return@withContext Result.failure(Exception("Не удалось создать запись в MediaStore"))
-
             val request = Request.Builder().url(directUrl).build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    resolver.delete(uri, null, null)
-                    return@withContext Result.failure(Exception("Ошибка сети при скачивании MP3"))
-                }
-
-                val body = response.body ?: throw Exception("Тело ответа пустое")
-                val totalLength = body.contentLength()
-
-                resolver.openOutputStream(uri)?.use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var downloaded = 0L
-
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-                            if (totalLength > 0) {
-                                val progress = ((downloaded * 100) / totalLength).toInt()
-                                onProgress(progress)
-                            }
-                        }
-                        output.flush()
-                    }
-                }
-            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                    put(MediaStore.Audio.Media.TITLE, track.title)
+                    put(MediaStore.Audio.Media.ARTIST, track.artist)
+                    put(MediaStore.Audio.Media.ALBUM, "Мне нравится • ${track.album}")
+                    put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/YandexMusic/Мне нравится")
+                    put(MediaStore.Audio.Media.IS_PENDING, 1 as Int)
+                }
+
+                val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    ?: return@withContext Result.failure(Exception("Не удалось создать запись в MediaStore"))
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        resolver.delete(uri, null, null)
+                        return@withContext Result.failure(Exception("Ошибка сети при скачивании MP3"))
+                    }
+
+                    val body = response.body ?: throw Exception("Тело ответа пустое")
+                    val totalLength = body.contentLength()
+
+                    resolver.openOutputStream(uri)?.use { output ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(8192)
+                            var bytesRead: Int
+                            var downloaded = 0L
+
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                downloaded += bytesRead
+                                if (totalLength > 0) {
+                                    onProgress(((downloaded * 100) / totalLength).toInt())
+                                }
+                            }
+                            output.flush()
+                        }
+                    }
+                }
+
                 contentValues.clear()
                 contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0 as Int)
                 resolver.update(uri, contentValues, null, null)
-            }
+                return@withContext Result.success(uri)
+            } else {
+                // Android 5.0–9.0 (API 21–28, включая автомобильные ГУ Changan):
+                // пишем физически в /Music/YandexMusic/Мне нравится и сразу индексируем MediaScannerConnection
+                val musicRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+                val targetDir = File(musicRoot, "YandexMusic/Мне нравится")
+                if (!targetDir.exists()) targetDir.mkdirs()
 
-            Result.success(uri)
+                val targetFile = File(targetDir, fileName)
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(Exception("Ошибка сети при скачивании MP3"))
+                    }
+                    val body = response.body ?: throw Exception("Тело ответа пустое")
+                    val totalLength = body.contentLength()
+
+                    FileOutputStream(targetFile).use { output ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(8192)
+                            var bytesRead: Int
+                            var downloaded = 0L
+
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                downloaded += bytesRead
+                                if (totalLength > 0) {
+                                    onProgress(((downloaded * 100) / totalLength).toInt())
+                                }
+                            }
+                            output.flush()
+                        }
+                    }
+                }
+
+                val legacyValues = ContentValues().apply {
+                    put(MediaStore.Audio.Media.DATA, targetFile.absolutePath)
+                    put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                    put(MediaStore.Audio.Media.TITLE, track.title)
+                    put(MediaStore.Audio.Media.ARTIST, track.artist)
+                    put(MediaStore.Audio.Media.ALBUM, "Мне нравится • ${track.album}")
+                    put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                }
+                val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, legacyValues)
+                    ?: Uri.fromFile(targetFile)
+
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf("audio/mpeg"),
+                    null
+                )
+                return@withContext Result.success(uri)
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

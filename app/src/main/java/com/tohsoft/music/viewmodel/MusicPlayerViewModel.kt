@@ -374,7 +374,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun rescanStorage() {
         viewModelScope.launch {
             _uiState.update { it.copy(isScanningStorage = true) }
-            val rawList = repository.loadDeviceSongs()
+            val rawList = repository.loadDeviceSongs(triggerMediaScanFirst = true)
             val listWithCovers = rawList.map { song ->
                 if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
                     val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
@@ -385,12 +385,17 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
             val filtered = filterAndProcessSongs(listWithCovers, _uiState.value.hideShortSongs, _uiState.value.blacklistedFolders)
             val sorted = sortTrackList(filtered, _uiState.value.sortMode)
+            val yandexCount = listWithCovers.count {
+                it.folder.contains("Yandex", ignoreCase = true) ||
+                it.dataPath.contains("Yandex", ignoreCase = true) ||
+                it.album.contains("Мне нравится", ignoreCase = true)
+            }
             _uiState.update {
                 it.copy(
                     songs = listWithCovers,
                     filteredSongs = sorted,
                     isScanningStorage = false,
-                    statusToastMessage = "Сканирование завершено: найдено ${sorted.size} треков"
+                    statusToastMessage = "Сканирование завершено: найдено ${sorted.size} треков (Яндекс Музыка: $yandexCount)"
                 )
             }
         }
@@ -1327,31 +1332,54 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val tracksResult = yandexRepository.getTracksMetadata(token, ids.take(50))
                 val tracks = tracksResult.getOrNull() ?: emptyList()
 
-                val yandexSongs = tracks.map { yt ->
-                    Song(
-                        id = yt.id.hashCode().toLong(),
-                        title = yt.title,
-                        artist = yt.artist,
-                        album = yt.album,
-                        durationMs = yt.durationMs,
-                        contentUri = Uri.parse("https://api.music.yandex.net"),
-                        coverUrl = yt.hdCoverUrl,
-                        genre = "Яндекс Музыка",
-                        year = yt.year ?: 2024,
-                        bitrate = "320 kbps MP3",
-                        isBuiltIn = false
+                val context = getApplication<Application>()
+                val downloadedSongs = mutableListOf<Song>()
+                val totalToDownload = tracks.size.coerceAtLeast(1)
+
+                tracks.forEachIndexed { idx, yt ->
+                    val directUrl = yandexRepository.getDownloadUrl(token, yt.id).getOrNull()
+                    val savedUri = if (!directUrl.isNullOrBlank()) {
+                        yandexRepository.downloadTrackToLocalStorage(context, yt, directUrl).getOrNull()
+                    } else null
+
+                    val pct = 30 + ((idx + 1) * 65) / totalToDownload
+                    _uiState.update {
+                        it.copy(
+                            yandexSyncProgress = pct,
+                            yandexSyncStatus = "Скачивание «Мне нравится» (${idx + 1}/$totalToDownload): ${yt.artist} — ${yt.title}"
+                        )
+                    }
+
+                    downloadedSongs.add(
+                        Song(
+                            id = yt.id.hashCode().toLong(),
+                            title = yt.title,
+                            artist = yt.artist,
+                            album = "Мне нравится • ${yt.album}",
+                            durationMs = yt.durationMs,
+                            contentUri = savedUri ?: Uri.parse("https://api.music.yandex.net"),
+                            coverUrl = yt.hdCoverUrl,
+                            genre = "Яндекс Музыка",
+                            year = yt.year ?: 2024,
+                            bitrate = "320 kbps MP3",
+                            folder = "YandexMusic",
+                            isBuiltIn = false
+                        )
                     )
                 }
 
+                // Повторно сканируем физическую папку /Music/YandexMusic/Мне нравится
+                val rescanned = repository.loadDeviceSongs(triggerMediaScanFirst = true)
+
                 _uiState.update { state ->
-                    val combined = (yandexSongs + state.songs).distinctBy { it.id }
+                    val combined = (rescanned + downloadedSongs + state.songs).distinctBy { it.id }
                     val sorted = sortTrackList(filterAndProcessSongs(combined, state.hideShortSongs, state.blacklistedFolders), state.sortMode)
                     state.copy(
                         songs = combined,
                         filteredSongs = sorted,
                         isYandexSyncing = false,
                         yandexSyncProgress = 100,
-                        yandexSyncStatus = "Успешно добавлено ${yandexSongs.size} треков!"
+                        yandexSyncStatus = "Успешно сохранено ${downloadedSongs.size} треков в /Music/YandexMusic/Мне нравится!"
                     )
                 }
             } catch (e: Exception) {

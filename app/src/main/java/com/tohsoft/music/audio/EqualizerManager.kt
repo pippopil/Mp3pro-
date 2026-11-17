@@ -58,6 +58,7 @@ class EqualizerManager(private var audioSessionId: Int) {
         private set
 
     private var currentBassBoostPercent: Int = 0
+    private var currentVirtualizerPercent: Int = 0
 
     // 10 Center Frequencies in Hz for wide-band EQ
     val centerFrequencies = listOf(31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
@@ -310,6 +311,9 @@ class EqualizerManager(private var audioSessionId: Int) {
             virtualizer?.enabled = enabled
             presetReverb?.enabled = enabled
             loudnessEnhancer?.enabled = enabled
+            systemEqualizer?.enabled = enabled
+            systemBassBoost?.enabled = enabled && currentBassBoostPercent > 0
+            systemVirtualizer?.enabled = enabled && currentVirtualizerPercent > 0
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -360,7 +364,8 @@ class EqualizerManager(private var audioSessionId: Int) {
     }
 
     fun setVirtualizerStrength(percent: Int) {
-        val strength = (percent.coerceIn(0, 100) * 10).toShort()
+        currentVirtualizerPercent = percent.coerceIn(0, 100)
+        val strength = (currentVirtualizerPercent * 10).toShort()
         try {
             if (virtualizer?.strengthSupported == true) {
                 virtualizer?.setStrength(strength)

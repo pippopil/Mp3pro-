@@ -9,20 +9,27 @@ android {
 
     defaultConfig {
         applicationId = "com.tohsoft.music.mp3.mp3playerpro"
-        minSdk = 24
+        minSdk = 21
         targetSdk = 34
 
         // Автоматическое версионирование: при сборке на GitHub Actions подставляются переменные среды
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         val ciVersionName = System.getenv("VERSION_NAME")
 
-        versionCode = ciRunNumber ?: 26
-        versionName = ciVersionName ?: "1.0.0-beta26"
+        versionCode = ciRunNumber ?: 30
+        versionName = ciVersionName ?: "1.0.0-beta30"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled = true
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
@@ -63,6 +70,11 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 

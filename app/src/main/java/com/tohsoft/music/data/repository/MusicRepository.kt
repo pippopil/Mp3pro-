@@ -2,11 +2,16 @@ package com.tohsoft.music.data.repository
 
 import android.content.ContentUris
 import android.content.Context
+import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import com.tohsoft.music.data.model.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MusicRepository(private val context: Context) {
 
@@ -121,11 +126,16 @@ class MusicRepository(private val context: Context) {
         )
     }
 
-    suspend fun loadDeviceSongs(): List<Song> = withContext(Dispatchers.IO) {
+    suspend fun loadDeviceSongs(triggerMediaScanFirst: Boolean = false): List<Song> = withContext(Dispatchers.IO) {
         val songList = mutableListOf<Song>()
+        val indexedPaths = mutableSetOf<String>()
+
+        if (triggerMediaScanFirst) {
+            triggerYandexAndMusicMediaScan()
+        }
 
         try {
-            val projection = arrayOf(
+            val projectionList = mutableListOf(
                 MediaStore.Audio.Media._ID,
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST,
@@ -134,12 +144,15 @@ class MusicRepository(private val context: Context) {
                 MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.DATA
             )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                projectionList.add(MediaStore.Audio.Media.RELATIVE_PATH)
+            }
 
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= 5000"
             val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
             val collectionUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
-            context.contentResolver.query(collectionUri, projection, selection, null, sortOrder)?.use { cursor ->
+            context.contentResolver.query(collectionUri, projectionList.toTypedArray(), selection, null, sortOrder)?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                 val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -147,6 +160,9 @@ class MusicRepository(private val context: Context) {
                 val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val relPathCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
+                } else -1
 
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
@@ -156,6 +172,11 @@ class MusicRepository(private val context: Context) {
                     val duration = cursor.getLong(durationCol)
                     val albumId = cursor.getLong(albumIdCol)
                     val path = cursor.getString(dataCol) ?: ""
+                    val relPath = if (relPathCol >= 0) cursor.getString(relPathCol) ?: "" else ""
+
+                    if (path.isNotBlank()) {
+                        indexedPaths.add(path.lowercase())
+                    }
 
                     val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                     val albumArtUri = ContentUris.withAppendedId(
@@ -163,18 +184,7 @@ class MusicRepository(private val context: Context) {
                         albumId
                     )
 
-                    val resolvedFolder = if (path.isNotBlank()) {
-                        val parent = path.substringBeforeLast('/', "")
-                        if (parent.contains("ru.yandex.music", ignoreCase = true) || parent.contains("YandexMusic", ignoreCase = true)) {
-                            "YandexMusic"
-                        } else if (parent.contains("Download", ignoreCase = true)) {
-                            "Download"
-                        } else {
-                            parent.substringAfterLast('/').ifBlank { "Music" }
-                        }
-                    } else {
-                        "Music"
-                    }
+                    val resolvedFolder = resolveFolderLabel(path, relPath, album)
 
                     songList.add(
                         Song(
@@ -186,7 +196,7 @@ class MusicRepository(private val context: Context) {
                             contentUri = contentUri,
                             albumArtUri = albumArtUri,
                             dataPath = path,
-                            genre = "Локальный файл",
+                            genre = if (resolvedFolder.contains("Yandex", ignoreCase = true)) "Яндекс Музыка" else "Локальный файл",
                             folder = resolvedFolder,
                             isBuiltIn = false
                         )
@@ -197,9 +207,150 @@ class MusicRepository(private val context: Context) {
             e.printStackTrace()
         }
 
+        // Прямое физическое сканирование папок (важно для скачанных треков Яндекс Музыки «Мне нравится»,
+        // папок Download и USB-флешек ГУ Changan UNI-S, которые MediaStore еще не проиндексировал)
+        val scannedDiskSongs = scanPhysicalAudioFolders(indexedPaths)
+        songList.addAll(scannedDiskSongs)
+
         // Добавляем встроенные тестовые треки в самое начало списка
         songList.addAll(0, BUILT_IN_TEST_TRACKS)
         songList
+    }
+
+    private fun resolveFolderLabel(path: String, relPath: String, album: String): String {
+        val combined = "$path $relPath $album"
+        return when {
+            combined.contains("ru.yandex.music", ignoreCase = true) ||
+            combined.contains("YandexMusic", ignoreCase = true) ||
+            combined.contains("Yandex", ignoreCase = true) ||
+            combined.contains("Мне нравится", ignoreCase = true) -> "YandexMusic"
+            combined.contains("usbotg", ignoreCase = true) ||
+            combined.contains("/mnt/usb", ignoreCase = true) ||
+            combined.contains("Changan", ignoreCase = true) -> "ChanganUSB"
+            combined.contains("Download", ignoreCase = true) -> "Download"
+            path.isNotBlank() -> path.substringBeforeLast('/', "").substringAfterLast('/').ifBlank { "Music" }
+            relPath.isNotBlank() -> relPath.trimEnd('/').substringAfterLast('/').ifBlank { "Music" }
+            else -> "Music"
+        }
+    }
+
+    private fun collectCandidateDirectories(): List<File> {
+        val dirs = linkedSetOf<File>()
+        val extRoot = Environment.getExternalStorageDirectory()
+        val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+
+        dirs.add(File(musicDir, "YandexMusic/Мне нравится"))
+        dirs.add(File(musicDir, "YandexMusic"))
+        dirs.add(musicDir)
+        dirs.add(File(downloadDir, "YandexMusic"))
+        dirs.add(downloadDir)
+        dirs.add(File(extRoot, "YandexMusic"))
+        dirs.add(File(extRoot, "Android/media"))
+        // На Android < 11 или Changan ГУ с открытым доступом проверяем также локальные папки Яндекс Музыки
+        dirs.add(File(extRoot, "Android/data/ru.yandex.music/files"))
+
+        // USB / OTG флешки для автомагнитол Changan UNI-S
+        listOf("/storage/usbotg", "/mnt/usb", "/mnt/usb_storage", "/mnt/media_rw").forEach { usbPath ->
+            val f = File(usbPath)
+            if (f.exists() && f.canRead()) dirs.add(f)
+        }
+        File("/storage").listFiles()?.forEach { vol ->
+            if (vol.isDirectory && vol.name != "emulated" && vol.name != "self" && vol.canRead()) {
+                dirs.add(vol)
+            }
+        }
+        return dirs.filter { it.exists() && it.isDirectory && it.canRead() }
+    }
+
+    private fun triggerYandexAndMusicMediaScan() {
+        try {
+            val filesToScan = mutableListOf<String>()
+            val audioExts = setOf("mp3", "m4a", "flac", "wav", "ogg", "aac", "opus")
+            collectCandidateDirectories().forEach { dir ->
+                dir.walkTopDown().maxDepth(4).forEach { f ->
+                    if (f.isFile && f.extension.lowercase() in audioExts) {
+                        filesToScan.add(f.absolutePath)
+                    }
+                }
+            }
+            if (filesToScan.isNotEmpty()) {
+                MediaScannerConnection.scanFile(context, filesToScan.toTypedArray(), null, null)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun scanPhysicalAudioFolders(alreadyIndexedPaths: Set<String>): List<Song> {
+        val discovered = mutableListOf<Song>()
+        val audioExts = setOf("mp3", "m4a", "flac", "wav", "ogg", "aac", "opus")
+        val newlyFoundPaths = mutableListOf<String>()
+
+        collectCandidateDirectories().forEach { rootDir ->
+            try {
+                rootDir.walkTopDown().maxDepth(4).forEach { file ->
+                    if (!file.isFile || !file.canRead() || file.length() < 8192L) return@forEach
+                    if (file.extension.lowercase() !in audioExts) return@forEach
+
+                    val absPath = file.absolutePath
+                    if (absPath.lowercase() in alreadyIndexedPaths) return@forEach
+
+                    var title = file.nameWithoutExtension
+                    var artist = "Неизвестный исполнитель"
+                    var album = file.parentFile?.name ?: "Локальная папка"
+                    var durationMs = 180_000L
+
+                    // Парсим имя файла вида "Artist - Title.mp3"
+                    if (title.contains(" - ")) {
+                        val parts = title.split(" - ", limit = 2)
+                        artist = parts[0].trim().ifBlank { artist }
+                        title = parts[1].trim().ifBlank { title }
+                    }
+
+                    // Читаем реальные ID3-теги и длительность через MediaMetadataRetriever
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(absPath)
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }?.let { title = it }
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }?.let { artist = it }
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.takeIf { it.isNotBlank() }?.let { album = it }
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { dur ->
+                            if (dur >= 5000L) durationMs = dur
+                        }
+                    } catch (_: Exception) {
+                        // Неподдерживаемый/поврежденный заголовок — используем данные имени файла
+                    } finally {
+                        try { retriever.release() } catch (_: Exception) {}
+                    }
+
+                    val folderLabel = resolveFolderLabel(absPath, "", album)
+                    discovered.add(
+                        Song(
+                            id = -Math.abs(absPath.hashCode().toLong()) - 1000L,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            durationMs = durationMs,
+                            contentUri = Uri.fromFile(file),
+                            dataPath = absPath,
+                            genre = if (folderLabel == "YandexMusic") "Яндекс Музыка" else "Скачано в папку",
+                            folder = folderLabel,
+                            isBuiltIn = false
+                        )
+                    )
+                    newlyFoundPaths.add(absPath)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        if (newlyFoundPaths.isNotEmpty()) {
+            try {
+                MediaScannerConnection.scanFile(context, newlyFoundPaths.toTypedArray(), null, null)
+            } catch (_: Exception) {}
+        }
+
+        return discovered
     }
 
     private val prefs = context.getSharedPreferences("mp3pro_playlists_store", Context.MODE_PRIVATE)
