@@ -14,9 +14,14 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import com.tohsoft.music.audio.AudiophileDSPProcessor
 import com.tohsoft.music.audio.EqualizerManager
 import com.tohsoft.music.data.CoverArtRepository
+import com.tohsoft.music.data.backup.SettingsBackupManager
 import com.tohsoft.music.data.db.TrackDatabase
 import com.tohsoft.music.data.model.Song
 import com.tohsoft.music.data.repository.MusicRepository
@@ -154,8 +159,26 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val streamingAccountRepo = StreamingAccountRepository(application)
     private val coverArtRepository = CoverArtRepository(application)
     private val yandexRepository = YandexMusicRepository()
+    private val settingsBackupManager = SettingsBackupManager(application)
+    private val audiophileDspProcessor = AudiophileDSPProcessor()
 
-    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application)
+    private val renderersFactory: DefaultRenderersFactory = object : DefaultRenderersFactory(application) {
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioTrackPlaybackParams: Boolean
+        ): AudioSink {
+            return DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(true)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(arrayOf(audiophileDspProcessor))
+                .build()
+        }
+    }.apply {
+        setEnableAudioFloatOutput(true)
+    }
+
+    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application, renderersFactory)
         .setMediaSourceFactory(
             androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
                 androidx.media3.datasource.DefaultDataSource.Factory(
@@ -176,6 +199,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
+        .apply {
+            // Gapless-воспроизведение между треками альбома
+            pauseAtEndOfMediaItems = false
+        }
 
     private var equalizerManager: EqualizerManager? = null
 
@@ -297,6 +324,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     } else {
                         nextSong()
                     }
+                }
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
+                    _uiState.update { it.copy(audioSessionId = audioSessionId) }
+                    bindAudioSession(audioSessionId)
                 }
             }
 
@@ -554,10 +588,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 exoPlayer.volume = 0.0f
                 exoPlayer.play()
                 viewModelScope.launch {
-                    val steps = 10
+                    val steps = 12
                     for (i in 1..steps) {
-                        delay(120)
-                        exoPlayer.volume = (i / steps.toFloat()).coerceIn(0f, 1f)
+                        delay(100)
+                        val progress = i / steps.toFloat()
+                        // Квадратичная кривая громкости (progress^2) звучит естественнее линейной
+                        exoPlayer.volume = (progress * progress).coerceIn(0f, 1f)
                     }
                 }
             } else {
@@ -827,17 +863,25 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun toggleEqEnabled(enabled: Boolean) {
         equalizerManager?.setEnabled(enabled)
+        audiophileDspProcessor.setEnabled(enabled)
         _uiState.update { it.copy(isEqEnabled = enabled) }
     }
 
     fun applyEqPreset(presetName: String) {
-        equalizerManager?.applyPreset(presetName)
+        val applied = equalizerManager?.applyPreset(presetName)
         val bands = equalizerManager?.getAllBandLevels() ?: _uiState.value.eqBands
+        audiophileDspProcessor.setAllBandsDb(bands)
+        if (applied != null) {
+            audiophileDspProcessor.setPreampDb(applied.preampDb)
+            audiophileDspProcessor.setBassShelfFromPercent(applied.bassBoost)
+            audiophileDspProcessor.setCrossfeedEnabled(applied.virtualizer >= 25)
+        }
         _uiState.update { it.copy(activeEqPreset = presetName, eqBands = bands) }
     }
 
     fun setEqBand(band: Int, level: Int) {
         equalizerManager?.setBandLevel(band, level)
+        audiophileDspProcessor.setBandGainDb(band, level.toFloat())
         val updated = _uiState.value.eqBands.toMutableList()
         if (band in updated.indices) {
             updated[band] = level
@@ -847,11 +891,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setBassBoost(strength: Int) {
         equalizerManager?.setBassBoostStrength(strength)
+        audiophileDspProcessor.setBassShelfFromPercent(strength)
         _uiState.update { it.copy(bassBoost = strength) }
     }
 
     fun setVirtualizer(strength: Int) {
         equalizerManager?.setVirtualizerStrength(strength)
+        audiophileDspProcessor.setCrossfeedEnabled(strength >= 25)
         _uiState.update { it.copy(virtualizer = strength) }
     }
 
@@ -867,6 +913,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun resetEq() {
         applyEqPreset("Normal (Плоский)")
+        setPreamp(0.0f)
         setBassBoost(0)
         setVirtualizer(0)
         setLoudness(0)
@@ -939,15 +986,102 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun setPreamp(db: Float) {
+        audiophileDspProcessor.setPreampDb(db)
         _uiState.update { it.copy(eqPreampDb = db) }
     }
 
     fun toggleLimiter(enabled: Boolean) {
+        audiophileDspProcessor.setLimiterEnabled(enabled)
         _uiState.update { it.copy(isLimiterEnabled = enabled) }
     }
 
     fun setTreble(level: Int) {
         _uiState.update { it.copy(trebleLevel = level) }
+    }
+
+    fun exportSettingsBackup(uri: Uri) {
+        val state = _uiState.value
+        viewModelScope.launch(Dispatchers.IO) {
+            val payload = SettingsBackupManager.BackupPayload(
+                eqPreset = state.activeEqPreset,
+                eqBands = state.eqBands,
+                preampDb = state.eqPreampDb,
+                bassBoost = state.bassBoost,
+                virtualizer = state.virtualizer,
+                loudnessGain = state.loudnessGain,
+                isLimiterEnabled = state.isLimiterEnabled,
+                isEqEnabled = state.isEqEnabled,
+                blacklistedFolders = state.blacklistedFolders,
+                visibleTabs = state.visibleTabs,
+                theme = state.currentTheme,
+                rememberPlayback = state.rememberPlayback,
+                fadeInOut = state.fadeInOut,
+                shakeToSkip = state.shakeToSkip,
+                hideShortSongs = state.hideShortSongs
+            )
+            val result = settingsBackupManager.exportToUri(uri, payload)
+            _uiState.update {
+                it.copy(
+                    statusToastMessage = if (result.isSuccess) {
+                        "✓ Настройки и пресет EQ экспортированы в JSON"
+                    } else {
+                        "Ошибка экспорта: ${result.exceptionOrNull()?.message ?: "нет доступа"}"
+                    }
+                )
+            }
+        }
+    }
+
+    fun importSettingsBackup(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = settingsBackupManager.importFromUri(uri)
+            withContext(Dispatchers.Main) {
+                result.onSuccess { data ->
+                    prefs.edit()
+                        .putStringSet("blacklistedFolders", data.blacklistedFolders)
+                        .putStringSet("visibleTabs", data.visibleTabs)
+                        .putString("currentTheme", data.theme)
+                        .putBoolean("rememberPlayback", data.rememberPlayback)
+                        .putBoolean("fadeInOut", data.fadeInOut)
+                        .putBoolean("shakeToSkip", data.shakeToSkip)
+                        .putBoolean("hideShortSongs", data.hideShortSongs)
+                        .apply()
+
+                    toggleEqEnabled(data.isEqEnabled)
+                    setPreamp(data.preampDb)
+                    toggleLimiter(data.isLimiterEnabled)
+                    data.eqBands.forEachIndexed { idx, gain -> setEqBand(idx, gain) }
+                    setBassBoost(data.bassBoost)
+                    setVirtualizer(data.virtualizer)
+                    setLoudness(data.loudnessGain)
+
+                    _uiState.update { state ->
+                        val filtered = recomputeFilteredSongs(
+                            state.songs,
+                            hideShort = data.hideShortSongs,
+                            blacklisted = data.blacklistedFolders
+                        )
+                        state.copy(
+                            activeEqPreset = data.eqPreset,
+                            eqBands = data.eqBands,
+                            blacklistedFolders = data.blacklistedFolders,
+                            visibleTabs = data.visibleTabs,
+                            currentTheme = data.theme,
+                            rememberPlayback = data.rememberPlayback,
+                            fadeInOut = data.fadeInOut,
+                            shakeToSkip = data.shakeToSkip,
+                            hideShortSongs = data.hideShortSongs,
+                            filteredSongs = filtered,
+                            statusToastMessage = "✓ Настройки и EQ «${data.eqPreset}» импортированы"
+                        )
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(statusToastMessage = "Некорректный файл бэкапа: ${err.message ?: "неверный JSON"}")
+                    }
+                }
+            }
+        }
     }
 
     fun setGenreFilter(genre: String) {

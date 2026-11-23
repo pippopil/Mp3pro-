@@ -149,7 +149,9 @@ fun MainPlayerScreen(
     onCloseAccountsModal: () -> Unit = {},
     onConnectAccount: (String, String, String) -> Unit = { _, _, _ -> },
     onSelectActiveAccount: (String?) -> Unit = {},
-    onRemoveAccount: (String) -> Unit = {}
+    onRemoveAccount: (String) -> Unit = {},
+    onExportSettingsBackup: () -> Unit = {},
+    onImportSettingsBackup: () -> Unit = {}
 ) {
     val bgBrush = Brush.verticalGradient(
         listOf(ColorDarkBgTop, ColorDarkBgMid, ColorDarkBgBottom)
@@ -163,7 +165,7 @@ fun MainPlayerScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(bgBrush)) {
+    Box(modifier = Modifier.fillMaxSize().background(bgBrush).systemBarsPadding()) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -269,7 +271,9 @@ fun MainPlayerScreen(
                             onFeedback = onFeedback,
                             onRateApp = onRateApp,
                             onShareApp = onShareApp,
-                            onRequestOverlayPermission = onRequestOverlayPermission
+                            onRequestOverlayPermission = onRequestOverlayPermission,
+                            onExportSettingsBackup = onExportSettingsBackup,
+                            onImportSettingsBackup = onImportSettingsBackup
                         )
                     }
                 }
@@ -923,12 +927,30 @@ fun DancingFrogVisualizer(
     isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
+    // Останавливаем бесконечную анимацию, когда экран не в состоянии RESUMED (экономия CPU и батареи)
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var isScreenResumed by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> isScreenResumed = true
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> isScreenResumed = false
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val animateActive = isPlaying && isScreenResumed
+
     val infiniteTransition = rememberInfiniteTransition(label = "DancingFrog")
     
     // Прыжки в такт бита
     val bounceY by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = if (isPlaying) -5f else 0f,
+        targetValue = if (animateActive) -5f else 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 260, easing = FastOutSlowInEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
@@ -938,8 +960,8 @@ fun DancingFrogVisualizer(
 
     // Наклон корпуса / покачивание
     val rotation by infiniteTransition.animateFloat(
-        initialValue = -12f,
-        targetValue = if (isPlaying) 12f else 0f,
+        initialValue = if (animateActive) -12f else 0f,
+        targetValue = if (animateActive) 12f else 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 260, easing = LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
@@ -950,7 +972,7 @@ fun DancingFrogVisualizer(
     // Мерцание музыкальных нот
     val noteAlpha by infiniteTransition.animateFloat(
         initialValue = 0.3f,
-        targetValue = if (isPlaying) 1f else 0.3f,
+        targetValue = if (animateActive) 1f else 0.3f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 520, easing = LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
@@ -1665,7 +1687,9 @@ fun SettingsTabContent(
     onPreampChange: (Float) -> Unit = {},
     onToggleLimiter: (Boolean) -> Unit = {},
     onTrebleChange: (Int) -> Unit = {},
-    onRequestOverlayPermission: () -> Unit = {}
+    onRequestOverlayPermission: () -> Unit = {},
+    onExportSettingsBackup: () -> Unit = {},
+    onImportSettingsBackup: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1965,6 +1989,8 @@ fun SettingsTabContent(
 
         SettingActionItem(icon = "⏱", title = "Таймер сна", onClick = onSleepTimerClick)
         SettingActionItem(icon = "📲", title = "SmartShare (Приемник)", onClick = onOpenSmartShare)
+        SettingActionItem(icon = "💾", title = "Экспорт настроек и EQ (JSON)", onClick = onExportSettingsBackup)
+        SettingActionItem(icon = "📂", title = "Импорт настроек и EQ (JSON)", onClick = onImportSettingsBackup)
 
         SettingSwitchItem(
             icon = "🔊",

@@ -17,8 +17,8 @@ android {
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         val ciVersionName = System.getenv("VERSION_NAME")
 
-        versionCode = ciRunNumber ?: 34
-        versionName = ciVersionName ?: "1.0.0-beta34"
+        versionCode = ciRunNumber ?: 35
+        versionName = ciVersionName ?: "1.0.0-beta35"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled = true
@@ -107,6 +107,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
+    // EncryptedSharedPreferences для безопасного хранения OAuth-токенов (minSdk 21+)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Coil для загрузки обложек
     implementation("io.coil-kt:coil-compose:2.7.0")
 
@@ -121,6 +124,12 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+}
+
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
 }
 
 // Отключение строгой проверки версии SDK для зависимостей AAR

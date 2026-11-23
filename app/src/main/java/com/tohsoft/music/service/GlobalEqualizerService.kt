@@ -75,14 +75,29 @@ class GlobalEqualizerService : Service() {
                 equalizerManager?.attachAudioSession(sessionId)
             }
             ACTION_DETACH_SESSION -> {
+                // Освобождаем все аппаратные AudioEffect при закрытии стороннего плеера (без «висящих» эффектов в audio_flinger)
+                equalizerManager?.release()
+                equalizerManager = null
                 currentAttachedPackage = "Глобальный аудиомикс"
                 currentSessionId = 0
-                equalizerManager?.attachAudioSession(0)
+                isServiceRunning = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                stopSelf()
+                return START_NOT_STICKY
             }
             else -> {
+                if (equalizerManager == null) {
+                    equalizerManager = EqualizerManager(sessionId)
+                } else {
+                    equalizerManager?.attachAudioSession(sessionId)
+                }
                 currentAttachedPackage = formatPackageName(pkg)
                 currentSessionId = sessionId
-                equalizerManager?.attachAudioSession(sessionId)
             }
         }
 

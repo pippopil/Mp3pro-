@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MP3 Player Pro</string>
+    <string name="tab_songs">Songs</string>
+    <string name="tab_folders">Folders</string>
+    <string name="tab_playlists">Playlists</string>
+    <string name="tab_settings">Settings</string>
+    <string name="export_settings_backup">Export Settings &amp; EQ (JSON)</string>
+    <string name="import_settings_backup">Import Settings &amp; EQ (JSON)</string>
+    <string name="dsp_active_label">32-bit Float DSP + Soft Limiter</string>
+</resources>

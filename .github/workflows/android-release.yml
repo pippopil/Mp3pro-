@@ -61,7 +61,10 @@ jobs:
           echo "VERSION_NAME=$VER" >> $GITHUB_ENV
           echo "Determined version: $VER"
 
-      # Сборка Release APK и Android App Bundle (AAB для Google Play)
+      # Автоматический прогон Unit-тестов DSP и сборка Release APK / AAB
+      - name: 🧪 Run Unit Tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: 🔨 Build with Gradle
         env:
           VERSION_NAME: ${{ env.VERSION_NAME }}

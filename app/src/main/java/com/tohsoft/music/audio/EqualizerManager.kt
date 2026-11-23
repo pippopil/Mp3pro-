@@ -220,22 +220,42 @@ class EqualizerManager(private var audioSessionId: Int) {
         }
     }
 
+    private fun isHardwareEffectSupported(effectType: java.util.UUID): Boolean {
+        return try {
+            val descriptors = AudioEffect.queryEffects() ?: return true
+            descriptors.any { it.type == effectType }
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    val isBassBoostSupportedByDevice: Boolean
+        get() = isHardwareEffectSupported(AudioEffect.EFFECT_TYPE_BASS_BOOST)
+
+    val isVirtualizerSupportedByDevice: Boolean
+        get() = isHardwareEffectSupported(AudioEffect.EFFECT_TYPE_VIRTUALIZER)
+
+    val isLoudnessSupportedByDevice: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT &&
+            isHardwareEffectSupported(AudioEffect.EFFECT_TYPE_LOUDNESS_ENHANCER)
+
     private fun initSystemWideEffects() {
         if (!isSystemWideAudioEffectEnabled) return
         try {
-            if (systemEqualizer == null) {
+            if (systemEqualizer == null && isHardwareEffectSupported(AudioEffect.EFFECT_TYPE_EQUALIZER)) {
                 systemEqualizer = Equalizer(0, 0).apply {
+                    enabled = false
                     enabled = isEnabled
                 }
             }
-            if (systemBassBoost == null) {
+            if (systemBassBoost == null && isBassBoostSupportedByDevice) {
                 systemBassBoost = BassBoost(0, 0).apply {
-                    enabled = isEnabled && currentBassBoostPercent > 0
+                    enabled = false
                 }
             }
-            if (systemVirtualizer == null) {
+            if (systemVirtualizer == null && isVirtualizerSupportedByDevice) {
                 systemVirtualizer = Virtualizer(0, 0).apply {
-                    enabled = isEnabled
+                    enabled = false
                 }
             }
             applySystemBassBoost()
@@ -250,19 +270,20 @@ class EqualizerManager(private var audioSessionId: Int) {
         val strength = (currentBassBoostPercent * 10).toShort()
         try {
             if (systemBassBoost?.strengthSupported == true) {
-                systemBassBoost?.enabled = isEnabled && currentBassBoostPercent > 0
                 systemBassBoost?.setStrength(strength)
+                systemBassBoost?.enabled = isEnabled && currentBassBoostPercent > 0
             }
         } catch (ignored: Exception) {}
     }
 
     private fun applySystemVirtualizer() {
         if (!isSystemWideAudioEffectEnabled) return
-        val strength = (currentVirtualizerPercent * 10).toShort()
+        // Консервативное масштабирование (до 700 из 1000) для предотвращения искажений на разных ROM
+        val strength = (currentVirtualizerPercent * 7).coerceIn(0, 700).toShort()
         try {
             if (systemVirtualizer?.strengthSupported == true) {
-                systemVirtualizer?.enabled = isEnabled
                 systemVirtualizer?.setStrength(strength)
+                systemVirtualizer?.enabled = isEnabled && currentVirtualizerPercent > 0
             }
         } catch (ignored: Exception) {}
     }
@@ -270,33 +291,56 @@ class EqualizerManager(private var audioSessionId: Int) {
     private fun initEffects() {
         try {
             if (audioSessionId >= 0) {
-                equalizer = Equalizer(0, audioSessionId).apply {
-                    enabled = isEnabled
-                }
-                bassBoost = BassBoost(0, audioSessionId).apply {
-                    enabled = isEnabled
-                }
-                virtualizer = Virtualizer(0, audioSessionId).apply {
-                    enabled = isEnabled
-                }
-                try {
-                    presetReverb = PresetReverb(0, audioSessionId).apply {
-                        preset = PresetReverb.PRESET_NONE
-                        enabled = isEnabled
-                    }
-                } catch (e: Exception) {
-                    // Reverb fallback
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                if (isHardwareEffectSupported(AudioEffect.EFFECT_TYPE_EQUALIZER)) {
                     try {
-                        loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply {
+                        equalizer = Equalizer(0, audioSessionId).apply {
+                            enabled = false
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (isBassBoostSupportedByDevice) {
+                    try {
+                        bassBoost = BassBoost(0, audioSessionId).apply {
+                            enabled = false
+                            if (strengthSupported) {
+                                setStrength((currentBassBoostPercent * 10).toShort())
+                            }
+                            enabled = isEnabled && currentBassBoostPercent > 0
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (isVirtualizerSupportedByDevice) {
+                    try {
+                        virtualizer = Virtualizer(0, audioSessionId).apply {
+                            enabled = false
+                            if (strengthSupported) {
+                                setStrength((currentVirtualizerPercent * 7).coerceIn(0, 700).toShort())
+                            }
+                            enabled = isEnabled && currentVirtualizerPercent > 0
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (isHardwareEffectSupported(AudioEffect.EFFECT_TYPE_PRESET_REVERB)) {
+                    try {
+                        presetReverb = PresetReverb(0, audioSessionId).apply {
+                            enabled = false
+                            preset = PresetReverb.PRESET_NONE
                             enabled = isEnabled
                         }
-                    } catch (e: Exception) {
-                        // Loudness fallback
-                    }
+                    } catch (_: Exception) {}
+                }
+                if (isLoudnessSupportedByDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                    try {
+                        loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply {
+                            enabled = false
+                            enabled = isEnabled
+                        }
+                    } catch (_: Exception) {}
                 }
                 applyBandsToHardware()
+                try {
+                    equalizer?.enabled = isEnabled
+                } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -465,21 +509,22 @@ class EqualizerManager(private var audioSessionId: Int) {
     }
 
     fun release() {
+        // Строгий порядок освобождения: сначала enabled = false, затем release()
         try {
-            equalizer?.release()
-            bassBoost?.release()
-            virtualizer?.release()
-            presetReverb?.release()
+            equalizer?.run { try { enabled = false } catch (_: Exception) {}; release() }
+            bassBoost?.run { try { enabled = false } catch (_: Exception) {}; release() }
+            virtualizer?.run { try { enabled = false } catch (_: Exception) {}; release() }
+            presetReverb?.run { try { enabled = false } catch (_: Exception) {}; release() }
             try {
-                systemEqualizer?.release()
-                systemBassBoost?.release()
-                systemVirtualizer?.release()
+                systemEqualizer?.run { try { enabled = false } catch (_: Exception) {}; release() }
+                systemBassBoost?.run { try { enabled = false } catch (_: Exception) {}; release() }
+                systemVirtualizer?.run { try { enabled = false } catch (_: Exception) {}; release() }
             } catch (ignored: Exception) {}
             systemEqualizer = null
             systemBassBoost = null
             systemVirtualizer = null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                loudnessEnhancer?.release()
+                loudnessEnhancer?.run { try { enabled = false } catch (_: Exception) {}; release() }
             }
         } catch (e: Exception) {
             e.printStackTrace()

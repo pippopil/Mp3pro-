@@ -5,11 +5,13 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [TrackEntity::class],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(TrackTypeConverters::class)
 abstract class RoomTrackDatabase : RoomDatabase() {
@@ -20,6 +22,9 @@ abstract class RoomTrackDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: RoomTrackDatabase? = null
 
+        // Явный реестр миграций для сохранности медиатеки при обновлениях (без destructive wipe)
+        val MIGRATIONS: Array<Migration> = emptyArray()
+
         fun getInstance(context: Context): RoomTrackDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -27,7 +32,7 @@ abstract class RoomTrackDatabase : RoomDatabase() {
                     RoomTrackDatabase::class.java,
                     "mp3pro_room_tracks.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(*MIGRATIONS)
                     .allowMainThreadQueries()
                     .build()
                     .also { INSTANCE = it }

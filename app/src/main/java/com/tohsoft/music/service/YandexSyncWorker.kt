@@ -57,6 +57,10 @@ class YandexSyncWorker(
             val total = tracks.size
 
             for (track in tracks) {
+                if (isStopped) {
+                    notificationManager.cancel(NOTIFICATION_ID)
+                    return@withContext ListenableWorker.Result.failure()
+                }
                 val progressPercent = if (total > 0) ((downloadedCount * 100) / total) else 0
                 setForeground(createForegroundInfo(progressPercent, "Загрузка: ${track.artist} - ${track.title} (${downloadedCount + 1}/$total)"))
 
@@ -64,7 +68,7 @@ class YandexSyncWorker(
                 val downloadUrlResult = repository.getDownloadUrl(token, track.id)
                 val downloadUrl = downloadUrlResult.getOrNull()
 
-                if (downloadUrl != null) {
+                if (downloadUrl != null && !isStopped) {
                     repository.downloadTrackToLocalStorage(context, track, downloadUrl)
                 }
 
@@ -74,7 +78,11 @@ class YandexSyncWorker(
             // Завершено
             notificationManager.cancel(NOTIFICATION_ID)
             ListenableWorker.Result.success()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            notificationManager.cancel(NOTIFICATION_ID)
+            throw e
         } catch (e: Exception) {
+            notificationManager.cancel(NOTIFICATION_ID)
             ListenableWorker.Result.retry()
         }
     }

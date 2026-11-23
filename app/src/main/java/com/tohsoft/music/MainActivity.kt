@@ -14,12 +14,15 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -39,6 +42,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
     private var lastShakeTimestamp: Long = 0
+    private val gravityFilter = FloatArray(3)
+    private var gravityInitialized = false
+
+    private val exportBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportSettingsBackup(uri)
+        }
+    }
+
+    private val importBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importSettingsBackup(uri)
+        }
+    }
 
     private val allFilesPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -85,6 +106,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         viewModel = ViewModelProvider(this)[MusicPlayerViewModel::class.java]
 
@@ -266,6 +289,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onPromptDeleteSong = { song -> viewModel.promptDeleteSong(song) },
                     onConfirmDeleteSong = { viewModel.confirmDeleteSong() },
                     onDismissDeleteSong = { viewModel.dismissDeleteDialog() },
+                    onExportSettingsBackup = {
+                        try {
+                            exportBackupLauncher.launch("mp3player_pro_backup.json")
+                        } catch (_: Exception) {
+                            Toast.makeText(this, "Не удалось открыть диалог сохранения файла", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onImportSettingsBackup = {
+                        try {
+                            importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                        } catch (_: Exception) {
+                            Toast.makeText(this, "Не удалось открыть диалог выбора файла", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onFeedback = {
                         try {
                             val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
@@ -310,26 +347,47 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         viewModel.refreshStoragePermissions()
-        accelerometer?.let {
-            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
+        gravityInitialized = false
+        try {
+            accelerometer?.let {
+                sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onPause() {
         super.onPause()
-        sensorManager?.unregisterListener(this)
+        try {
+            sensorManager?.unregisterListener(this)
+        } catch (_: Exception) {}
     }
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             if (!viewModel.uiState.value.shakeToSkip) return
-            val x = event.values[0]
-            val y = event.values[1]
-            val z = event.values[2]
-            val gForce = sqrt((x * x + y * y + z * z).toDouble()).toFloat() / SensorManager.GRAVITY_EARTH
-            if (gForce > 2.7f) {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (pm != null && !pm.isInteractive) return
+
+            // Low-pass фильтр гравитации (alpha = 0.8f) для исключения ложных срабатываний
+            val alpha = 0.8f
+            if (!gravityInitialized) {
+                gravityFilter[0] = event.values[0]
+                gravityFilter[1] = event.values[1]
+                gravityFilter[2] = event.values[2]
+                gravityInitialized = true
+                return
+            }
+            gravityFilter[0] = alpha * gravityFilter[0] + (1f - alpha) * event.values[0]
+            gravityFilter[1] = alpha * gravityFilter[1] + (1f - alpha) * event.values[1]
+            gravityFilter[2] = alpha * gravityFilter[2] + (1f - alpha) * event.values[2]
+
+            val linX = event.values[0] - gravityFilter[0]
+            val linY = event.values[1] - gravityFilter[1]
+            val linZ = event.values[2] - gravityFilter[2]
+            val linearG = sqrt((linX * linX + linY * linY + linZ * linZ).toDouble()).toFloat() / SensorManager.GRAVITY_EARTH
+            if (linearG > 1.85f) {
                 val now = System.currentTimeMillis()
-                if (now - lastShakeTimestamp > 1200L) {
+                if (now - lastShakeTimestamp > 1400L) {
                     lastShakeTimestamp = now
                     viewModel.nextSong()
                     Toast.makeText(this, "🔀 Встряхивание: следующий трек", Toast.LENGTH_SHORT).show()

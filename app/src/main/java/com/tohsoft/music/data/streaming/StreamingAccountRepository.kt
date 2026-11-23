@@ -37,7 +37,12 @@ data class StreamingAccount(
 
 class StreamingAccountRepository(private val context: Context) {
 
-    private val prefs = context.getSharedPreferences("mp3pro_streaming_accounts", Context.MODE_PRIVATE)
+    // Зашифрованное хранилище OAuth-токенов (EncryptedSharedPreferences / AES-256)
+    private val prefs = com.tohsoft.music.data.security.SecureTokenStorage.getEncryptedPrefs(
+        context,
+        encryptedName = "mp3pro_streaming_accounts_secure",
+        legacyPlainName = "mp3pro_streaming_accounts"
+    )
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
