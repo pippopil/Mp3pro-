@@ -19,11 +19,11 @@ enum class StreamingProvider(
     val isFreeNoKey: Boolean,
     val hint: String
 ) {
-    AUDIUS("audius", "Audius (Бесплатно)", true, "Публичный @handle или пусто для Топ-треков (без API-ключей)"),
-    SPOTIFY("spotify", "Spotify (Ссылка / Токен)", true, "Вставьте публичную ссылку open.spotify.com/playlist/... или OAuth-токен"),
-    YANDEX("yandex", "Яндекс Музыка", false, "Вставьте OAuth-токен Яндекс Музыки (y0_AgAAAA...)"),
-    SOUNDCLOUD("soundcloud", "SoundCloud", false, "Вставьте OAuth-токен SoundCloud"),
-    VK("vk", "VK Музыка", false, "Вставьте токен VK Audio")
+    AUDIUS("audius", "Audius (Бесплатно)", true, "Войдите через браузер или введите @handle (пусто = Топ-треки, без API-ключей)"),
+    SPOTIFY("spotify", "Spotify", true, "Войдите в Spotify для авто-перехвата API токена или откройте/вставьте ссылку на плейлист"),
+    YANDEX("yandex", "Яндекс Музыка", false, "Войдите через Яндекс ID — токен перехватится автоматически, все треки пойдут потоково"),
+    SOUNDCLOUD("soundcloud", "SoundCloud", false, "Войдите в SoundCloud — API-токен перехватится автоматически из сессии"),
+    VK("vk", "VK Музыка", false, "Войдите через VK ID — токен VK Audio перехватится автоматически")
 }
 
 data class StreamingAccount(
@@ -309,15 +309,18 @@ class StreamingAccountRepository(private val context: Context) {
                     ?.optJSONObject("entity")
                 entity?.optString("name")?.takeIf { it.isNotBlank() }?.let { collectionTitle = it }
                 val trackList = entity?.optJSONArray("trackList") ?: JSONArray()
-                val limit = trackList.length().coerceAtMost(20)
-                for (i in 0 until limit) {
+                for (i in 0 until trackList.length()) {
                     val item = trackList.optJSONObject(i) ?: continue
                     val title = item.optString("title", "Track")
                     val artist = item.optString("subtitle", "Spotify Artist")
-                    val resolved = resolveFullStreamByQuery("$artist $title")
-                    val audioUri = resolved?.first ?: item.optString("audioPreview")
-                    val durMs = resolved?.second ?: item.optLong("duration", 180000L)
-                    if (audioUri.isBlank()) continue
+                    val preview = item.optString("audioPreview", "")
+                    val durMs = item.optLong("duration", 180000L)
+                    val lazyUri = Uri.Builder()
+                        .scheme("streamquery")
+                        .authority("spotify")
+                        .appendQueryParameter("q", "$artist $title")
+                        .apply { if (preview.isNotBlank()) appendQueryParameter("fallback", preview) }
+                        .build()
                     songs.add(
                         Song(
                             id = -Math.abs(("spotify_" + id + "_" + i).hashCode().toLong()) - 30_000L,
@@ -325,8 +328,9 @@ class StreamingAccountRepository(private val context: Context) {
                             artist = artist,
                             album = collectionTitle,
                             durationMs = durMs,
-                            contentUri = Uri.parse(audioUri),
+                            contentUri = lazyUri,
                             genre = "Spotify Public",
+                            bitrate = "320 kbps Stream",
                             folder = "Streaming/Spotify",
                             streamingProvider = "spotify"
                         )
@@ -336,37 +340,59 @@ class StreamingAccountRepository(private val context: Context) {
             return (customLabel.ifBlank { "Spotify: $collectionTitle" }) to songs
         } else {
             val token = credential.removePrefix("Bearer ").trim()
-            if (token.isBlank()) throw Exception("Введите публичную ссылку или OAuth-токен Spotify")
-            val req = Request.Builder()
-                .url("https://api.spotify.com/v1/me/tracks?limit=25")
-                .header("Authorization", "Bearer $token")
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) throw Exception("Spotify API вернул HTTP ${resp.code}")
-                val items = JSONObject(resp.body?.string() ?: "{}").optJSONArray("items") ?: JSONArray()
-                for (i in 0 until items.length()) {
-                    val tr = items.optJSONObject(i)?.optJSONObject("track") ?: continue
-                    val title = tr.optString("name", "Spotify Track")
-                    val artist = tr.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: "Artist"
-                    val resolved = resolveFullStreamByQuery("$artist $title")
-                    val uriStr = resolved?.first ?: tr.optString("preview_url")
-                    if (uriStr.isBlank()) continue
-                    val cover = tr.optJSONObject("album")?.optJSONArray("images")?.optJSONObject(0)?.optString("url")
-                    songs.add(
-                        Song(
-                            id = -Math.abs(("sp_tk_" + tr.optString("id")).hashCode().toLong()) - 35_000L,
-                            title = title,
-                            artist = artist,
-                            album = tr.optJSONObject("album")?.optString("name") ?: "Spotify Liked",
-                            durationMs = resolved?.second ?: tr.optLong("duration_ms", 180000L),
-                            contentUri = Uri.parse(uriStr),
-                            coverUrl = cover,
-                            genre = "Spotify",
-                            folder = "Streaming/Spotify",
-                            streamingProvider = "spotify"
+            if (token.isBlank()) throw Exception("Войдите в Spotify или вставьте публичную ссылку / OAuth-токен")
+            com.tohsoft.music.data.security.SecureTokenStorage
+                .getEncryptedPrefs(context, "mp3pro_spotify_secure_token")
+                .edit()
+                .putString("spotify_oauth_token", token)
+                .apply()
+
+            var offset = 0
+            val pageSize = 50
+            val maxTracks = 500
+            while (songs.size < maxTracks) {
+                val req = Request.Builder()
+                    .url("https://api.spotify.com/v1/me/tracks?limit=$pageSize&offset=$offset")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+                val fetched = httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        if (offset == 0) throw Exception("Spotify API вернул HTTP ${resp.code}")
+                        return@use 0
+                    }
+                    val items = JSONObject(resp.body?.string() ?: "{}").optJSONArray("items") ?: JSONArray()
+                    for (i in 0 until items.length()) {
+                        val tr = items.optJSONObject(i)?.optJSONObject("track") ?: continue
+                        val title = tr.optString("name", "Spotify Track")
+                        val artist = tr.optJSONArray("artists")?.optJSONObject(0)?.optString("name") ?: "Artist"
+                        val preview = tr.optString("preview_url", "").takeUnless { it == "null" }.orEmpty()
+                        val cover = tr.optJSONObject("album")?.optJSONArray("images")?.optJSONObject(0)?.optString("url")
+                        val lazyUri = Uri.Builder()
+                            .scheme("streamquery")
+                            .authority("spotify")
+                            .appendQueryParameter("q", "$artist $title")
+                            .apply { if (preview.isNotBlank()) appendQueryParameter("fallback", preview) }
+                            .build()
+                        songs.add(
+                            Song(
+                                id = -Math.abs(("sp_tk_" + tr.optString("id")).hashCode().toLong()) - 35_000L,
+                                title = title,
+                                artist = artist,
+                                album = tr.optJSONObject("album")?.optString("name") ?: "Spotify Liked",
+                                durationMs = tr.optLong("duration_ms", 180000L),
+                                contentUri = lazyUri,
+                                coverUrl = cover,
+                                genre = "Spotify",
+                                bitrate = "320 kbps Stream",
+                                folder = "Streaming/Spotify",
+                                streamingProvider = "spotify"
+                            )
                         )
-                    )
+                    }
+                    items.length()
                 }
+                if (fetched < pageSize) break
+                offset += pageSize
             }
             return (customLabel.ifBlank { "Spotify Аккаунт" }) to songs
         }
@@ -409,71 +435,303 @@ class StreamingAccountRepository(private val context: Context) {
 
     private fun syncSoundCloud(tokenInput: String, customLabel: String): Pair<String, List<Song>> {
         val token = tokenInput.removePrefix("OAuth ").removePrefix("Bearer ").trim()
-        if (token.isBlank()) throw Exception("Введите OAuth-токен SoundCloud")
-        val req = Request.Builder()
-            .url("https://api.soundcloud.com/me/likes/tracks?limit=25")
-            .header("Authorization", "OAuth $token")
-            .build()
+        if (token.isBlank()) throw Exception("Войдите в SoundCloud или введите OAuth-токен")
+        com.tohsoft.music.data.security.SecureTokenStorage
+            .getEncryptedPrefs(context, "mp3pro_sc_secure_token")
+            .edit()
+            .putString("soundcloud_oauth_token", token)
+            .apply()
+
         val songs = mutableListOf<Song>()
-        httpClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw Exception("SoundCloud API вернул HTTP ${resp.code}")
-            val arr = JSONArray(resp.body?.string() ?: "[]")
-            for (i in 0 until arr.length()) {
-                val item = arr.optJSONObject(i) ?: continue
-                val title = item.optString("title", "SoundCloud Track")
-                val artist = item.optJSONObject("user")?.optString("username") ?: "SoundCloud"
-                val streamUrl = item.optString("stream_url").takeIf { it.isNotBlank() }
-                    ?: resolveFullStreamByQuery("$artist $title")?.first
-                    ?: continue
-                songs.add(
-                    Song(
-                        id = -Math.abs(("sc_" + item.optLong("id")).hashCode().toLong()) - 50_000L,
-                        title = title,
-                        artist = artist,
-                        album = "SoundCloud Likes",
-                        durationMs = item.optLong("duration", 180000L),
-                        contentUri = Uri.parse(streamUrl),
-                        coverUrl = item.optString("artwork_url").takeIf { it.isNotBlank() },
-                        genre = item.optString("genre", "SoundCloud"),
-                        folder = "Streaming/SoundCloud",
-                        streamingProvider = "soundcloud"
+        var accountName = customLabel.ifBlank { "SoundCloud" }
+
+        // 1) Пробуем современный SoundCloud API v2 (работает с перехваченным oauth_token из WebView)
+        try {
+            val meReq = Request.Builder()
+                .url("https://api-v2.soundcloud.com/me")
+                .header("Authorization", "OAuth $token")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                .build()
+            val userId = httpClient.newCall(meReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val obj = JSONObject(resp.body?.string() ?: "{}")
+                    if (customLabel.isBlank()) {
+                        obj.optString("username").takeIf { it.isNotBlank() }?.let { accountName = "SoundCloud: $it" }
+                    }
+                    obj.optLong("id", 0L)
+                } else 0L
+            }
+            val likesUrl = if (userId > 0L) {
+                "https://api-v2.soundcloud.com/users/$userId/track_likes?limit=200"
+            } else {
+                "https://api-v2.soundcloud.com/me/track_likes?limit=200"
+            }
+            val v2Req = Request.Builder()
+                .url(likesUrl)
+                .header("Authorization", "OAuth $token")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                .build()
+            httpClient.newCall(v2Req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val collection = JSONObject(resp.body?.string() ?: "{}").optJSONArray("collection") ?: JSONArray()
+                    for (i in 0 until collection.length()) {
+                        val tr = collection.optJSONObject(i)?.optJSONObject("track") ?: continue
+                        val tid = tr.optLong("id", 0L)
+                        if (tid <= 0L) continue
+                        val title = tr.optString("title", "SoundCloud Track")
+                        val artist = tr.optJSONObject("user")?.optString("username") ?: "SoundCloud"
+                        val cover = tr.optString("artwork_url", "")
+                            .takeIf { it.isNotBlank() && it != "null" }
+                            ?.replace("-large", "-t500x500")
+                        val lazyUri = Uri.Builder()
+                            .scheme("soundcloud")
+                            .authority("track")
+                            .appendPath(tid.toString())
+                            .appendQueryParameter("q", "$artist $title")
+                            .build()
+                        songs.add(
+                            Song(
+                                id = -Math.abs(("sc_" + tid).hashCode().toLong()) - 50_000L,
+                                title = title,
+                                artist = artist,
+                                album = "SoundCloud Likes",
+                                durationMs = tr.optLong("duration", 180000L),
+                                contentUri = lazyUri,
+                                coverUrl = cover,
+                                genre = tr.optString("genre", "SoundCloud").ifBlank { "SoundCloud" },
+                                bitrate = "Stream HQ",
+                                folder = "Streaming/SoundCloud",
+                                streamingProvider = "soundcloud"
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 2) Fallback на классический API v1, если v2 ничего не вернул
+        if (songs.isEmpty()) {
+            val req = Request.Builder()
+                .url("https://api.soundcloud.com/me/likes/tracks?limit=200")
+                .header("Authorization", "OAuth $token")
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("SoundCloud API вернул HTTP ${resp.code}")
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val tid = item.optLong("id", 0L)
+                    val title = item.optString("title", "SoundCloud Track")
+                    val artist = item.optJSONObject("user")?.optString("username") ?: "SoundCloud"
+                    val lazyUri = Uri.Builder()
+                        .scheme("soundcloud")
+                        .authority("track")
+                        .appendPath(tid.toString())
+                        .appendQueryParameter("q", "$artist $title")
+                        .build()
+                    songs.add(
+                        Song(
+                            id = -Math.abs(("sc_" + tid).hashCode().toLong()) - 50_000L,
+                            title = title,
+                            artist = artist,
+                            album = "SoundCloud Likes",
+                            durationMs = item.optLong("duration", 180000L),
+                            contentUri = lazyUri,
+                            coverUrl = item.optString("artwork_url").takeIf { it.isNotBlank() && it != "null" },
+                            genre = item.optString("genre", "SoundCloud"),
+                            bitrate = "Stream HQ",
+                            folder = "Streaming/SoundCloud",
+                            streamingProvider = "soundcloud"
+                        )
                     )
-                )
+                }
             }
         }
-        return (customLabel.ifBlank { "SoundCloud" }) to songs
+        return accountName to songs
     }
 
     private fun syncVk(tokenInput: String, customLabel: String): Pair<String, List<Song>> {
         val token = tokenInput.substringAfter("access_token=", tokenInput).substringBefore("&").trim()
-        if (token.isBlank()) throw Exception("Введите токен VK Audio")
-        val req = Request.Builder()
-            .url("https://api.vk.com/method/audio.get?access_token=" + URLEncoder.encode(token, "UTF-8") + "&v=5.131&count=25")
-            .header("User-Agent", "KateMobileAndroid/56 lite-460 (Android 14; SDK 34)")
-            .build()
+        if (token.isBlank()) throw Exception("Войдите через VK ID или введите токен VK Audio")
+        com.tohsoft.music.data.security.SecureTokenStorage
+            .getEncryptedPrefs(context, "mp3pro_vk_secure_token")
+            .edit()
+            .putString("vk_oauth_token", token)
+            .apply()
+
         val songs = mutableListOf<Song>()
-        httpClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw Exception("VK API вернул HTTP ${resp.code}")
-            val items = JSONObject(resp.body?.string() ?: "{}").optJSONObject("response")?.optJSONArray("items") ?: JSONArray()
-            for (i in 0 until items.length()) {
-                val item = items.optJSONObject(i) ?: continue
-                val url = item.optString("url")
-                if (url.isBlank()) continue
-                songs.add(
-                    Song(
-                        id = -Math.abs(("vk_" + item.optLong("id")).hashCode().toLong()) - 60_000L,
-                        title = item.optString("title", "VK Track"),
-                        artist = item.optString("artist", "VK Artist"),
-                        album = "VK Музыка",
-                        durationMs = item.optLong("duration", 180L) * 1000L,
-                        contentUri = Uri.parse(url),
-                        genre = "VK Audio",
-                        folder = "Streaming/VK",
-                        streamingProvider = "vk"
+        var offset = 0
+        val batchSize = 200
+        val maxTracks = 600
+        while (songs.size < maxTracks) {
+            val req = Request.Builder()
+                .url("https://api.vk.com/method/audio.get?access_token=" + URLEncoder.encode(token, "UTF-8") + "&v=5.131&count=$batchSize&offset=$offset")
+                .header("User-Agent", "KateMobileAndroid/56 lite-460 (Android 14; SDK 34)")
+                .build()
+            val fetched = httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    if (offset == 0) throw Exception("VK API вернул HTTP ${resp.code}")
+                    return@use 0
+                }
+                val root = JSONObject(resp.body?.string() ?: "{}")
+                val errObj = root.optJSONObject("error")
+                if (errObj != null) {
+                    val msg = errObj.optString("error_msg", "Ошибка доступа VK Audio")
+                    if (offset == 0) throw Exception("VK API: $msg")
+                    return@use 0
+                }
+                val items = root.optJSONObject("response")?.optJSONArray("items") ?: JSONArray()
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val ownerId = item.optLong("owner_id", 0L)
+                    val audioId = item.optLong("id", 0L)
+                    val directUrl = item.optString("url", "")
+                    if (directUrl.isBlank() && (ownerId == 0L || audioId == 0L)) continue
+                    val title = item.optString("title", "VK Track")
+                    val artist = item.optString("artist", "VK Artist")
+                    val cover = item.optJSONObject("album")
+                        ?.optJSONObject("thumb")
+                        ?.let { th ->
+                            th.optString("photo_600").takeIf { it.isNotBlank() }
+                                ?: th.optString("photo_300").takeIf { it.isNotBlank() }
+                        }
+                    // Храним виртуальный vk:// URI, чтобы ссылка обновлялась при каждом запуске и не протухала
+                    val trackUri = if (ownerId != 0L && audioId != 0L) {
+                        Uri.Builder()
+                            .scheme("vk")
+                            .authority("track")
+                            .appendPath("${ownerId}_${audioId}")
+                            .apply { if (directUrl.isNotBlank()) appendQueryParameter("fallback", directUrl) }
+                            .build()
+                    } else {
+                        Uri.parse(directUrl)
+                    }
+                    songs.add(
+                        Song(
+                            id = -Math.abs(("vk_" + ownerId + "_" + audioId).hashCode().toLong()) - 60_000L,
+                            title = title,
+                            artist = artist,
+                            album = "VK Музыка",
+                            durationMs = item.optLong("duration", 180L) * 1000L,
+                            contentUri = trackUri,
+                            coverUrl = cover,
+                            genre = "VK Audio",
+                            bitrate = "320 kbps Stream",
+                            folder = "Streaming/VK",
+                            streamingProvider = "vk"
+                        )
                     )
-                )
+                }
+                items.length()
             }
+            if (fetched < batchSize) break
+            offset += batchSize
         }
         return (customLabel.ifBlank { "VK Музыка" }) to songs
+    }
+
+    /**
+     * Ленивое разрешение потоковой ссылки в момент нажатия Play (чтобы ссылки VK / SoundCloud / Spotify не протухали).
+     */
+    suspend fun resolveLazyStreamUrl(song: Song): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val uri = song.contentUri
+            when (uri.scheme?.lowercase()) {
+                "vk" -> {
+                    val ownerAndId = uri.lastPathSegment.orEmpty()
+                    val fallbackUrl = uri.getQueryParameter("fallback").orEmpty()
+                    val vkToken = com.tohsoft.music.data.security.SecureTokenStorage
+                        .getEncryptedPrefs(context, "mp3pro_vk_secure_token")
+                        .getString("vk_oauth_token", "")
+                        .orEmpty()
+                        .ifBlank {
+                            loadSavedAccounts().firstOrNull { it.providerId == "vk" }?.credential.orEmpty()
+                        }
+                    if (vkToken.isNotBlank() && ownerAndId.isNotBlank()) {
+                        val req = Request.Builder()
+                            .url("https://api.vk.com/method/audio.getById?audios=" + URLEncoder.encode(ownerAndId, "UTF-8") + "&access_token=" + URLEncoder.encode(vkToken, "UTF-8") + "&v=5.131")
+                            .header("User-Agent", "KateMobileAndroid/56 lite-460 (Android 14; SDK 34)")
+                            .build()
+                        val fresh = httpClient.newCall(req).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                JSONObject(resp.body?.string() ?: "{}")
+                                    .optJSONArray("response")
+                                    ?.optJSONObject(0)
+                                    ?.optString("url")
+                                    ?.takeIf { it.isNotBlank() }
+                            } else null
+                        }
+                        if (!fresh.isNullOrBlank()) return@withContext Result.success(fresh)
+                    }
+                    if (fallbackUrl.isNotBlank()) return@withContext Result.success(fallbackUrl)
+                    val alt = resolveFullStreamByQuery("${song.artist} ${song.title}")?.first
+                    if (!alt.isNullOrBlank()) Result.success(alt)
+                    else Result.failure(Exception("Не удалось получить свежую ссылку VK Audio"))
+                }
+                "soundcloud" -> {
+                    val trackId = uri.lastPathSegment.orEmpty()
+                    val query = uri.getQueryParameter("q").orEmpty().ifBlank { "${song.artist} ${song.title}" }
+                    val scToken = com.tohsoft.music.data.security.SecureTokenStorage
+                        .getEncryptedPrefs(context, "mp3pro_sc_secure_token")
+                        .getString("soundcloud_oauth_token", "")
+                        .orEmpty()
+                        .ifBlank {
+                            loadSavedAccounts().firstOrNull { it.providerId == "soundcloud" }?.credential.orEmpty()
+                        }
+                    if (scToken.isNotBlank() && trackId.isNotBlank() && trackId != "0") {
+                        val infoReq = Request.Builder()
+                            .url("https://api-v2.soundcloud.com/tracks/$trackId")
+                            .header("Authorization", "OAuth $scToken")
+                            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                            .build()
+                        val transcodingEndpoint = httpClient.newCall(infoReq).execute().use { resp ->
+                            if (!resp.isSuccessful) return@use null
+                            val transcodings = JSONObject(resp.body?.string() ?: "{}")
+                                .optJSONObject("media")
+                                ?.optJSONArray("transcodings")
+                                ?: return@use null
+                            var progressive: String? = null
+                            var hls: String? = null
+                            for (i in 0 until transcodings.length()) {
+                                val tc = transcodings.optJSONObject(i) ?: continue
+                                val proto = tc.optJSONObject("format")?.optString("protocol").orEmpty()
+                                val u = tc.optString("url").takeIf { it.isNotBlank() } ?: continue
+                                if (proto == "progressive") progressive = u
+                                else if (hls == null) hls = u
+                            }
+                            progressive ?: hls
+                        }
+                        if (!transcodingEndpoint.isNullOrBlank()) {
+                            val streamReq = Request.Builder()
+                                .url(transcodingEndpoint)
+                                .header("Authorization", "OAuth $scToken")
+                                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                                .build()
+                            val signedUrl = httpClient.newCall(streamReq).execute().use { resp ->
+                                if (resp.isSuccessful) {
+                                    JSONObject(resp.body?.string() ?: "{}").optString("url").takeIf { it.isNotBlank() }
+                                } else null
+                            }
+                            if (!signedUrl.isNullOrBlank()) return@withContext Result.success(signedUrl)
+                        }
+                    }
+                    val alt = resolveFullStreamByQuery(query)?.first
+                    if (!alt.isNullOrBlank()) Result.success(alt)
+                    else Result.failure(Exception("Поток SoundCloud недоступен"))
+                }
+                "streamquery" -> {
+                    val query = uri.getQueryParameter("q").orEmpty().ifBlank { "${song.artist} ${song.title}" }
+                    val fallback = uri.getQueryParameter("fallback").orEmpty()
+                    val full = resolveFullStreamByQuery(query)?.first
+                    if (!full.isNullOrBlank()) Result.success(full)
+                    else if (fallback.isNotBlank()) Result.success(fallback)
+                    else Result.failure(Exception("Не удалось найти аудиопоток для ${song.title}"))
+                }
+                else -> Result.success(uri.toString())
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

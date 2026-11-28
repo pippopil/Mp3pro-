@@ -568,7 +568,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
 
-            if (restoredSong != null && lastPos > 0 && restoredSong.contentUri.scheme != "yandex") {
+            val lazySchemes = setOf("yandex", "vk", "soundcloud", "streamquery")
+            if (restoredSong != null && lastPos > 0 && restoredSong.contentUri.scheme !in lazySchemes) {
                 try {
                     exoPlayer.setMediaItem(buildRichMediaItem(restoredSong))
                     exoPlayer.prepare()
@@ -643,7 +644,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun playSong(song: Song) {
         streamResolveJob?.cancel()
-        if (song.contentUri.scheme == "yandex") {
+        val scheme = song.contentUri.scheme?.lowercase()
+        if (scheme == "yandex") {
             val yandexTrackId = song.contentUri.lastPathSegment
                 ?.takeIf { it.isNotBlank() }
                 ?: song.contentUri.toString().substringAfter("yandex://track/", "").trim()
@@ -683,6 +685,32 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     return@launch
                 }
 
+                startPlaybackWithUri(song, Uri.parse(directUrl))
+            }
+            return
+        }
+
+        if (scheme == "vk" || scheme == "soundcloud" || scheme == "streamquery") {
+            _uiState.update {
+                it.copy(
+                    currentSong = song,
+                    isPlaying = false,
+                    currentPositionMs = 0,
+                    durationMs = song.durationMs,
+                    statusToastMessage = "Подключение к потоку: ${song.artist} — ${song.title}..."
+                )
+            }
+
+            streamResolveJob = viewModelScope.launch {
+                val resolvedResult = streamingAccountRepo.resolveLazyStreamUrl(song)
+                val directUrl = resolvedResult.getOrNull()
+                if (directUrl.isNullOrBlank()) {
+                    val reason = resolvedResult.exceptionOrNull()?.message ?: "аудиопоток недоступен"
+                    _uiState.update {
+                        it.copy(statusToastMessage = "Ошибка потока: $reason")
+                    }
+                    return@launch
+                }
                 startPlaybackWithUri(song, Uri.parse(directUrl))
             }
             return

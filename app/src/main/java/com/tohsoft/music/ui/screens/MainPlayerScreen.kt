@@ -4361,34 +4361,52 @@ fun StreamingAccountsModal(
                     )
                 }
 
-                var showStreamingYandexWebView by remember { mutableStateOf(false) }
+                var showProviderAuthWebView by remember { mutableStateOf(false) }
 
-                if (showStreamingYandexWebView) {
-                    com.tohsoft.music.ui.components.YandexOAuthWebViewDialog(
-                        onTokenCaptured = { capturedToken ->
-                            showStreamingYandexWebView = false
-                            credentialInput = capturedToken
-                            onConnectAccount(StreamingProvider.YANDEX.id, capturedToken, customLabelInput)
+                if (showProviderAuthWebView) {
+                    com.tohsoft.music.ui.components.StreamingOAuthWebViewDialog(
+                        provider = selectedProvider,
+                        onCredentialCaptured = { capturedCred ->
+                            showProviderAuthWebView = false
+                            credentialInput = capturedCred
+                            onConnectAccount(selectedProvider.id, capturedCred, customLabelInput)
                         },
-                        onDismiss = { showStreamingYandexWebView = false }
+                        onDismiss = { showProviderAuthWebView = false }
                     )
                 }
 
-                if (selectedProvider == StreamingProvider.YANDEX) {
-                    Button(
-                        onClick = { showStreamingYandexWebView = true },
-                        enabled = !isConnecting,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = ColorYandexGold),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            "🟡 Войти через Яндекс ID (авто-токен)",
-                            color = Color.Black,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                val authBtnColor = when (selectedProvider) {
+                    StreamingProvider.YANDEX -> ColorYandexGold
+                    StreamingProvider.VK -> Color(0xFF0077FF)
+                    StreamingProvider.SPOTIFY -> Color(0xFF1DB954)
+                    StreamingProvider.SOUNDCLOUD -> Color(0xFFFF5500)
+                    StreamingProvider.AUDIUS -> Color(0xFFCC0FE0)
+                }
+                val authBtnTextColor = when (selectedProvider) {
+                    StreamingProvider.YANDEX, StreamingProvider.SPOTIFY -> Color.Black
+                    else -> Color.White
+                }
+                val authBtnLabel = when (selectedProvider) {
+                    StreamingProvider.YANDEX -> "🟡 Войти через Яндекс ID (авто-перехват API)"
+                    StreamingProvider.VK -> "🔵 Войти через VK ID (авто-перехват API)"
+                    StreamingProvider.SPOTIFY -> "🟢 Войти в Spotify (авто-перехват API)"
+                    StreamingProvider.SOUNDCLOUD -> "🟠 Войти в SoundCloud (авто-перехват API)"
+                    StreamingProvider.AUDIUS -> "🟣 Открыть Audius и выбрать профиль"
+                }
+
+                Button(
+                    onClick = { showProviderAuthWebView = true },
+                    enabled = !isConnecting,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = authBtnColor),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = authBtnLabel,
+                        color = authBtnTextColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 OutlinedTextField(
@@ -4396,9 +4414,9 @@ fun StreamingAccountsModal(
                     onValueChange = { credentialInput = it },
                     label = {
                         val lbl = when (selectedProvider) {
-                            StreamingProvider.AUDIUS -> "@handle или пусто для Топ-треков"
-                            StreamingProvider.SPOTIFY -> "Ссылка open.spotify.com/... или токен"
-                            else -> "OAuth-токен сервиса"
+                            StreamingProvider.AUDIUS -> "Или введите @handle (пусто = Топ-треки)"
+                            StreamingProvider.SPOTIFY -> "Или вставьте ссылку open.spotify.com/... / токен"
+                            else -> "Или вставьте OAuth-токен вручную"
                         }
                         Text(lbl, color = ColorTextMuted, fontSize = 11.sp)
                     },
