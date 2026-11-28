@@ -3268,6 +3268,15 @@ fun PlaylistsTabContent(
     if (selectedPlaylistId != null) {
         val pl = playlists.find { it.id == selectedPlaylistId }
         val plSongs = pl?.songIds?.mapNotNull { id -> allSongs.find { it.id == id } } ?: emptyList()
+        var playlistSearchQuery by remember(selectedPlaylistId) { mutableStateOf("") }
+        val trimmedPlaylistQuery = playlistSearchQuery.trim()
+        val visiblePlSongs = remember(plSongs, trimmedPlaylistQuery) {
+            if (trimmedPlaylistQuery.isEmpty()) plSongs
+            else plSongs.filter {
+                it.title.contains(trimmedPlaylistQuery, ignoreCase = true) ||
+                    it.artist.contains(trimmedPlaylistQuery, ignoreCase = true)
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -3313,9 +3322,42 @@ fun PlaylistsTabContent(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(pl?.name ?: "Плейлист", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text(plSongs.size.toString() + " треков в списке", color = ColorTurquoise, fontSize = 11.sp)
+                        val countLabel = if (trimmedPlaylistQuery.isEmpty()) {
+                            plSongs.size.toString() + " треков в списке"
+                        } else {
+                            "Найдено " + visiblePlSongs.size + " из " + plSongs.size
+                        }
+                        Text(countLabel, color = ColorTurquoise, fontSize = 11.sp)
                     }
                 }
+            }
+
+            if (plSongs.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = playlistSearchQuery,
+                    onValueChange = { playlistSearchQuery = it },
+                    placeholder = { Text("Поиск по названию или артисту...", color = ColorTextMuted, fontSize = 12.sp) },
+                    leadingIcon = { Text("🔍", fontSize = 14.sp) },
+                    trailingIcon = {
+                        if (playlistSearchQuery.isNotEmpty()) {
+                            IconButton(onClick = { playlistSearchQuery = "" }) {
+                                Text("✕", color = ColorTextMuted, fontSize = 14.sp)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ColorTurquoise,
+                        unfocusedBorderColor = Color(0x33FFFFFF),
+                        focusedContainerColor = Color(0xFF0E162B),
+                        unfocusedContainerColor = Color(0xFF0E162B)
+                    )
+                )
             }
 
             Spacer(Modifier.height(10.dp))
@@ -3327,12 +3369,19 @@ fun PlaylistsTabContent(
                 ) {
                     Text("В этом плейлисте пока нет песен. Добавляйте треки кнопкой «+» во вкладках «ПЕСНИ» или «ПАПКИ»!", color = ColorTextMuted, textAlign = TextAlign.Center, fontSize = 12.sp)
                 }
+            } else if (visiblePlSongs.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(top = 32.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Text("По запросу «$trimmedPlaylistQuery» треки не найдены.", color = ColorTextMuted, textAlign = TextAlign.Center, fontSize = 12.sp)
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(plSongs) { song ->
+                    items(visiblePlSongs) { song ->
                         Surface(
                             color = Color(0xFF0F1A3B),
                             shape = RoundedCornerShape(12.dp),
