@@ -373,10 +373,10 @@ class StreamingAccountRepository(private val context: Context) {
     }
 
     private suspend fun syncYandex(tokenInput: String, customLabel: String): Pair<String, List<Song>> {
-        val cleanToken = tokenInput.substringAfter("access_token=", tokenInput).substringBefore("&").trim()
-        if (cleanToken.isBlank()) throw Exception("Введите OAuth-токен Яндекс Музыки")
         val yandexRepo = YandexMusicRepository()
-        val resolvedUid = yandexRepo.fetchAccountUid(cleanToken)
+        val cleanToken = yandexRepo.sanitizeToken(tokenInput)
+        if (cleanToken.isBlank()) throw Exception("Введите OAuth-токен Яндекс Музыки")
+        val resolvedUid = yandexRepo.fetchAccountUidResult(cleanToken).getOrElse { throw it }
         val ids = yandexRepo.getLikedTrackIds(cleanToken, resolvedUid).getOrElse { throw it }
         val metaList = yandexRepo.getTracksMetadata(cleanToken, ids.take(30)).getOrElse { emptyList() }
         val songs = metaList.map { yt ->

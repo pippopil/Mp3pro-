@@ -1828,8 +1828,19 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun syncYandexMusic(token: String, userId: String = "me") {
+    fun syncYandexMusic(token: String, userId: String = "") {
         viewModelScope.launch {
+            val cleanToken = yandexRepository.sanitizeToken(token)
+            if (cleanToken.isBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isYandexSyncing = false,
+                        yandexSyncStatus = "Токен пуст — войдите через Яндекс ID или вставьте OAuth-токен"
+                    )
+                }
+                return@launch
+            }
+
             _uiState.update {
                 it.copy(
                     isYandexSyncing = true,
@@ -1839,13 +1850,49 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             try {
-                val idsResult = yandexRepository.getLikedTrackIds(token, userId)
-                val ids = idsResult.getOrNull()
-                if (ids.isNullOrEmpty()) {
+                val resolvedUid = if (userId.isNotBlank() && userId != "me") {
+                    userId
+                } else {
+                    val uidResult = yandexRepository.fetchAccountUidResult(cleanToken)
+                    val uid = uidResult.getOrNull()
+                    if (uid.isNullOrBlank()) {
+                        val reason = uidResult.exceptionOrNull()?.message ?: "Не удалось определить ID аккаунта"
+                        _uiState.update {
+                            it.copy(
+                                isYandexSyncing = false,
+                                yandexSyncStatus = "Ошибка подключения ID: $reason"
+                            )
+                        }
+                        return@launch
+                    }
+                    uid
+                }
+
+                _uiState.update {
+                    it.copy(
+                        yandexSyncProgress = 15,
+                        yandexSyncStatus = "Яндекс ID #$resolvedUid подключён. Загрузка «Мне нравится»..."
+                    )
+                }
+
+                val idsResult = yandexRepository.getLikedTrackIds(cleanToken, resolvedUid)
+                if (idsResult.isFailure) {
+                    val reason = idsResult.exceptionOrNull()?.message ?: "Ошибка загрузки списка треков"
                     _uiState.update {
                         it.copy(
                             isYandexSyncing = false,
-                            yandexSyncStatus = "Ошибка авторизации или список лайков пуст"
+                            yandexSyncStatus = "Ошибка синхронизации: $reason"
+                        )
+                    }
+                    return@launch
+                }
+
+                val ids = idsResult.getOrNull().orEmpty()
+                if (ids.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isYandexSyncing = false,
+                            yandexSyncStatus = "В разделе «Мне нравится» на этом аккаунте пока нет треков"
                         )
                     }
                     return@launch
@@ -1858,7 +1905,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     )
                 }
 
-                val tracksResult = yandexRepository.getTracksMetadata(token, ids.take(50))
+                val tracksResult = yandexRepository.getTracksMetadata(cleanToken, ids.take(50))
                 val tracks = tracksResult.getOrNull() ?: emptyList()
 
                 val context = getApplication<Application>()
@@ -1866,7 +1913,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val totalToDownload = tracks.size.coerceAtLeast(1)
 
                 tracks.forEachIndexed { idx, yt ->
-                    val directUrl = yandexRepository.getDownloadUrl(token, yt.id).getOrNull()
+                    val directUrl = yandexRepository.getDownloadUrl(cleanToken, yt.id).getOrNull()
                     val savedUri = if (!directUrl.isNullOrBlank()) {
                         yandexRepository.downloadTrackToLocalStorage(context, yt, directUrl).getOrNull()
                     } else null

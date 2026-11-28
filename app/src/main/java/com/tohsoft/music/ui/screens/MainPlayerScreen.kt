@@ -2133,18 +2133,27 @@ fun YandexSyncModal(
                 )
 
                 if (isSyncing) {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(14.dp))
                     LinearProgressIndicator(
                         progress = { progress / 100f },
                         modifier = Modifier.fillMaxWidth(),
                         color = ColorYandexGold,
                         trackColor = Color(0x33FFCC00)
                     )
+                }
+
+                if (isSyncing || statusText.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
+                    val statusColor = when {
+                        isSyncing -> ColorYandexGold
+                        statusText.startsWith("Успешно") -> ColorTurquoise
+                        else -> Color(0xFFF87171)
+                    }
                     Text(
                         text = statusText.ifEmpty { "Синхронизация треков..." },
-                        color = ColorYandexGold,
-                        fontSize = 12.sp
+                        color = statusColor,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
                     )
                 }
             }

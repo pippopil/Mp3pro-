@@ -16,6 +16,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 /**
  * Модели данных Яндекс Музыки
@@ -49,65 +50,141 @@ data class YandexDownloadInfo(
  * и скачать их в максимальном качестве 320 kbps в Scoped Storage устройства.
  */
 class YandexMusicRepository(
-    private val client: OkHttpClient = OkHttpClient()
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 ) {
     companion object {
         private const val BASE_API_URL = "https://api.music.yandex.net"
+        private const val LOGIN_INFO_URL = "https://login.yandex.ru/info?format=json"
+        private const val YANDEX_CLIENT_HEADER = "YandexMusicAndroid/24023621"
+        private const val YANDEX_USER_AGENT = "Yandex-Music-API"
         // Секретная соль Яндекса для генерации проверочного MD5 хеша прямой MP3-ссылки
         private const val SIGN_SALT = "XGRlBW9FXlekgb0rphzgbt"
     }
 
+    fun sanitizeToken(rawToken: String): String {
+        val extracted = if (rawToken.contains("access_token=")) {
+            rawToken.substringAfter("access_token=").substringBefore("&").substringBefore("#")
+        } else {
+            rawToken
+        }
+        return extracted
+            .removePrefix("OAuth ")
+            .removePrefix("Bearer ")
+            .trim()
+    }
+
+    private fun authedRequestBuilder(url: String, token: String): Request.Builder {
+        val clean = sanitizeToken(token)
+        return Request.Builder()
+            .url(url)
+            .header("Authorization", "OAuth $clean")
+            .header("X-Yandex-Music-Client", YANDEX_CLIENT_HEADER)
+            .header("User-Agent", YANDEX_USER_AGENT)
+            .header("Accept", "application/json")
+            .header("Accept-Language", "ru")
+    }
+
     /**
-     * Получить UID авторизованного пользователя Яндекс Музыки через /account/status (fallback: "me")
+     * Получить числовой UID авторизованного пользователя Яндекс Музыки:
+     * 1) через /account/status (Mobile API),
+     * 2) резервный вариант — через https://login.yandex.ru/info?format=json.
      */
-    suspend fun fetchAccountUid(token: String): String = withContext(Dispatchers.IO) {
+    suspend fun fetchAccountUidResult(token: String): Result<String> = withContext(Dispatchers.IO) {
+        val clean = sanitizeToken(token)
+        if (clean.isBlank()) return@withContext Result.failure(Exception("Пустой OAuth-токен"))
+
+        var lastError = "Неизвестная ошибка"
+
+        // 1. Основной способ: api.music.yandex.net/account/status
         try {
-            val request = Request.Builder()
-                .url("$BASE_API_URL/account/status")
-                .header("Authorization", "OAuth $token")
+            val req = authedRequestBuilder("$BASE_API_URL/account/status", clean).build()
+            client.newCall(req).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val accountObj = JSONObject(body)
+                        .optJSONObject("result")
+                        ?.optJSONObject("account")
+                    val uidNum = accountObj?.optLong("uid", 0L) ?: 0L
+                    val uidStr = if (uidNum > 0L) uidNum.toString() else accountObj?.optString("uid", "").orEmpty()
+                    if (uidStr.isNotBlank() && uidStr != "null" && uidStr != "0") {
+                        return@withContext Result.success(uidStr)
+                    }
+                    lastError = "Ответ /account/status не содержит uid"
+                } else {
+                    lastError = "Music API HTTP ${response.code}"
+                }
+            }
+        } catch (e: Exception) {
+            lastError = e.message ?: "Сетевая ошибка /account/status"
+        }
+
+        // 2. Резервный способ: login.yandex.ru/info?format=json (всегда отдаёт числовой id для валидного OAuth-токена)
+        try {
+            val loginReq = Request.Builder()
+                .url(LOGIN_INFO_URL)
+                .header("Authorization", "OAuth $clean")
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext "me"
-                val body = response.body?.string() ?: return@withContext "me"
-                val uid = JSONObject(body)
-                    .optJSONObject("result")
-                    ?.optJSONObject("account")
-                    ?.opt("uid")
-                    ?.toString()
-                    ?.takeIf { it.isNotBlank() && it != "null" }
-                uid ?: "me"
+            client.newCall(loginReq).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val uidStr = JSONObject(body).optString("id", "").trim()
+                    if (uidStr.isNotBlank() && uidStr != "null" && uidStr != "0") {
+                        return@withContext Result.success(uidStr)
+                    }
+                } else {
+                    lastError = "$lastError; Passport HTTP ${response.code}"
+                }
             }
-        } catch (_: Exception) {
-            "me"
+        } catch (e: Exception) {
+            lastError = "$lastError; ${e.message ?: "сеть"}"
         }
+
+        Result.failure(Exception(lastError))
+    }
+
+    /**
+     * Получить UID авторизованного пользователя Яндекс Музыки (совместимость со старым вызовом)
+     */
+    suspend fun fetchAccountUid(token: String): String {
+        return fetchAccountUidResult(token).getOrDefault("me")
     }
 
     /**
      * Получить список идентификаторов всех сохраненных (лайкнутых) треков пользователя
      */
-    suspend fun getLikedTrackIds(token: String, userId: String = "me"): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun getLikedTrackIds(token: String, userId: String = ""): Result<List<String>> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url("$BASE_API_URL/users/$userId/likes/tracks")
-                .header("Authorization", "OAuth $token")
-                .header("Accept", "application/json")
-                .build()
+            val clean = sanitizeToken(token)
+            val resolvedUid = if (userId.isBlank() || userId == "me") {
+                fetchAccountUidResult(clean).getOrElse { return@withContext Result.failure(it) }
+            } else {
+                userId
+            }
+
+            val request = authedRequestBuilder("$BASE_API_URL/users/$resolvedUid/likes/tracks", clean).build()
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(Exception("HTTP ${response.code}: Ошибка авторизации или доступа"))
+                    return@withContext Result.failure(Exception("HTTP ${response.code}: Ошибка доступа к библиотеке (UID=$resolvedUid)"))
                 }
-                val bodyStr = response.body?.string() ?: return@withContext Result.failure(Exception("Пустой ответ"))
+                val bodyStr = response.body?.string() ?: return@withContext Result.failure(Exception("Пустой ответ от сервера"))
                 val json = JSONObject(bodyStr)
-                val resultObj = json.getJSONObject("result")
-                val libraryObj = resultObj.getJSONObject("library")
-                val tracksArray = libraryObj.getJSONArray("tracks")
+                val tracksArray = json.optJSONObject("result")
+                    ?.optJSONObject("library")
+                    ?.optJSONArray("tracks")
+                    ?: return@withContext Result.success(emptyList())
 
                 val trackIds = mutableListOf<String>()
                 for (i in 0 until tracksArray.length()) {
-                    val item = tracksArray.getJSONObject(i)
-                    trackIds.add(item.getString("id"))
+                    val item = tracksArray.optJSONObject(i) ?: continue
+                    val id = item.optString("id", "").trim()
+                    if (id.isNotBlank()) trackIds.add(id)
                 }
                 Result.success(trackIds)
             }
@@ -121,39 +198,39 @@ class YandexMusicRepository(
      */
     suspend fun getTracksMetadata(token: String, trackIds: List<String>): Result<List<YandexTrack>> = withContext(Dispatchers.IO) {
         try {
+            if (trackIds.isEmpty()) return@withContext Result.success(emptyList())
             val formBody = okhttp3.FormBody.Builder()
                 .add("track-ids", trackIds.joinToString(","))
                 .build()
 
-            val request = Request.Builder()
-                .url("$BASE_API_URL/tracks")
-                .header("Authorization", "OAuth $token")
+            val request = authedRequestBuilder("$BASE_API_URL/tracks", token)
                 .post(formBody)
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext Result.failure(Exception("Не удалось загрузить метаданные"))
+                if (!response.isSuccessful) return@withContext Result.failure(Exception("Метаданные HTTP ${response.code}"))
                 val bodyStr = response.body?.string() ?: ""
                 val json = JSONObject(bodyStr)
-                val resultArray = json.getJSONArray("result")
+                val resultArray = json.optJSONArray("result") ?: return@withContext Result.success(emptyList())
 
                 val resultList = mutableListOf<YandexTrack>()
                 for (i in 0 until resultArray.length()) {
-                    val trackObj = resultArray.getJSONObject(i)
-                    val id = trackObj.getString("id")
-                    val title = trackObj.getString("title")
-                    
+                    val trackObj = resultArray.optJSONObject(i) ?: continue
+                    val id = trackObj.optString("id", "").trim()
+                    val title = trackObj.optString("title", "").trim()
+                    if (id.isBlank() || title.isBlank()) continue
+
                     val artistsArray = trackObj.optJSONArray("artists")
                     val artistName = if (artistsArray != null && artistsArray.length() > 0) {
-                        artistsArray.getJSONObject(0).getString("name")
+                        artistsArray.optJSONObject(0)?.optString("name").orEmpty().ifBlank { "Неизвестный исполнитель" }
                     } else "Неизвестный исполнитель"
 
                     val albumsArray = trackObj.optJSONArray("albums")
-                    val albumObj = if (albumsArray != null && albumsArray.length() > 0) albumsArray.getJSONObject(0) else null
-                    val albumTitle = albumObj?.optString("title") ?: "Сингл"
-                    val year = albumObj?.optInt("year")
+                    val albumObj = if (albumsArray != null && albumsArray.length() > 0) albumsArray.optJSONObject(0) else null
+                    val albumTitle = albumObj?.optString("title").orEmpty().ifBlank { "Сингл" }
+                    val year = albumObj?.optInt("year", 0)?.takeIf { it > 0 }
                     val durationMs = trackObj.optLong("durationMs", 0L)
-                    val coverUri = trackObj.optString("coverUri", null)
+                    val coverUri = trackObj.optString("coverUri", "").takeIf { it.isNotBlank() && it != "null" }
 
                     resultList.add(
                         YandexTrack(
@@ -180,39 +257,50 @@ class YandexMusicRepository(
     suspend fun getDownloadUrl(token: String, trackId: String): Result<String> = withContext(Dispatchers.IO) {
         try {
             // 1. Запрос параметров хранилища
-            val requestInfo = Request.Builder()
-                .url("$BASE_API_URL/tracks/$trackId/download-info")
-                .header("Authorization", "OAuth $token")
-                .build()
+            val requestInfo = authedRequestBuilder("$BASE_API_URL/tracks/$trackId/download-info", token).build()
 
             val infoUrl = client.newCall(requestInfo).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(Exception("download-info HTTP ${resp.code}"))
                 val body = resp.body?.string() ?: ""
                 val json = JSONObject(body)
-                val results = json.getJSONArray("result")
-                // Ищем наивысший битрейт (320 или 192 kbps)
-                var bestUrl = ""
-                var maxBitrate = 0
+                val results = json.optJSONArray("result") ?: return@withContext Result.failure(Exception("Нет данных download-info"))
+                // Ищем наивысший битрейт MP3 (320 или 192 kbps), fallback на любой формат
+                var bestMp3Url = ""
+                var maxMp3Bitrate = 0
+                var fallbackUrl = ""
+                var maxAnyBitrate = 0
                 for (i in 0 until results.length()) {
-                    val item = results.getJSONObject(i)
+                    val item = results.optJSONObject(i) ?: continue
+                    val codec = item.optString("codec", "").lowercase()
                     val bitrate = item.optInt("bitrateInKbps", 0)
-                    if (bitrate >= maxBitrate) {
-                        maxBitrate = bitrate
-                        bestUrl = item.getString("downloadInfoUrl")
+                    val url = item.optString("downloadInfoUrl", "")
+                    if (url.isBlank()) continue
+                    if (codec == "mp3" && bitrate >= maxMp3Bitrate) {
+                        maxMp3Bitrate = bitrate
+                        bestMp3Url = url
+                    }
+                    if (bitrate >= maxAnyBitrate) {
+                        maxAnyBitrate = bitrate
+                        fallbackUrl = url
                     }
                 }
-                bestUrl
+                bestMp3Url.ifBlank { fallbackUrl }
             }
 
             if (infoUrl.isEmpty()) return@withContext Result.failure(Exception("Параметры скачивания не найдены"))
 
             // 2. Получение XML данных хранилища
-            val requestXml = Request.Builder().url(infoUrl).build()
+            val requestXml = authedRequestBuilder(infoUrl, token).build()
             client.newCall(requestXml).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(Exception("XML download-info HTTP ${resp.code}"))
                 val xml = resp.body?.string() ?: ""
                 val host = extractXmlTag(xml, "host")
                 val path = extractXmlTag(xml, "path")
                 val ts = extractXmlTag(xml, "ts")
                 val s = extractXmlTag(xml, "s")
+                if (host.isBlank() || path.length < 2 || ts.isBlank() || s.isBlank()) {
+                    return@withContext Result.failure(Exception("Неполные параметры хранилища MP3"))
+                }
 
                 // 3. Вычисление подписи MD5: md5("XGRlBW9FXlekgb0rphzgbt" + path.substring(1) + s)
                 val dataToSign = SIGN_SALT + path.substring(1) + s

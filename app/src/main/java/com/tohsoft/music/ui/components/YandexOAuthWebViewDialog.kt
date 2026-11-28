@@ -175,7 +175,11 @@ fun YandexOAuthWebViewDialog(
                                     if (!captured) {
                                         captured = true
                                         view?.stopLoading()
-                                        onTokenCaptured(token)
+                                        if (view != null) {
+                                            view.post { onTokenCaptured(token) }
+                                        } else {
+                                            onTokenCaptured(token)
+                                        }
                                     }
                                     return true
                                 }
