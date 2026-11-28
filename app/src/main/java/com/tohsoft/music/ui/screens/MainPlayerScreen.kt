@@ -2068,6 +2068,18 @@ fun YandexSyncModal(
     onSync: (String) -> Unit
 ) {
     var tokenInput by remember { mutableStateOf("") }
+    var showYandexWebView by remember { mutableStateOf(false) }
+
+    if (showYandexWebView) {
+        com.tohsoft.music.ui.components.YandexOAuthWebViewDialog(
+            onTokenCaptured = { capturedToken ->
+                showYandexWebView = false
+                tokenInput = capturedToken
+                onSync(capturedToken)
+            },
+            onDismiss = { showYandexWebView = false }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = { if (!isSyncing) onDismiss() },
@@ -2087,30 +2099,27 @@ fun YandexSyncModal(
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
-                Spacer(Modifier.height(10.dp))
-                val yandexDialogCtx = androidx.compose.ui.platform.LocalContext.current
-                OutlinedButton(
-                    onClick = {
-                        try {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse("https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d")
-                            )
-                            yandexDialogCtx.startActivity(intent)
-                        } catch (_: Exception) {}
-                    },
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = { showYandexWebView = true },
                     enabled = !isSyncing,
                     modifier = Modifier.fillMaxWidth(),
-                    border = BorderStroke(1.dp, ColorYandexGold.copy(alpha = 0.6f))
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorYandexGold),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("🔑 Открыть Яндекс OAuth (получить токен)", color = ColorYandexGold, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "🟡 Войти через Яндекс ID (авто-токен)",
+                        color = Color.Black,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
 
                 OutlinedTextField(
                     value = tokenInput,
                     onValueChange = { tokenInput = it },
-                    label = { Text("OAuth Токен Яндекс Музыки", color = ColorTextMuted, fontSize = 12.sp) },
+                    label = { Text("Или вставьте OAuth-токен вручную", color = ColorTextMuted, fontSize = 12.sp) },
                     placeholder = { Text("y0_AgAAAA...", color = Color(0x66FFFFFF), fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -4246,23 +4255,33 @@ fun StreamingAccountsModal(
                     )
                 }
 
-                if (selectedProvider == StreamingProvider.YANDEX) {
-                    val oauthCtx = androidx.compose.ui.platform.LocalContext.current
-                    OutlinedButton(
-                        onClick = {
-                            try {
-                                val intent = android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse("https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d")
-                                )
-                                oauthCtx.startActivity(intent)
-                            } catch (_: Exception) {}
+                var showStreamingYandexWebView by remember { mutableStateOf(false) }
+
+                if (showStreamingYandexWebView) {
+                    com.tohsoft.music.ui.components.YandexOAuthWebViewDialog(
+                        onTokenCaptured = { capturedToken ->
+                            showStreamingYandexWebView = false
+                            credentialInput = capturedToken
+                            onConnectAccount(StreamingProvider.YANDEX.id, capturedToken, customLabelInput)
                         },
+                        onDismiss = { showStreamingYandexWebView = false }
+                    )
+                }
+
+                if (selectedProvider == StreamingProvider.YANDEX) {
+                    Button(
+                        onClick = { showStreamingYandexWebView = true },
                         enabled = !isConnecting,
                         modifier = Modifier.fillMaxWidth(),
-                        border = BorderStroke(1.dp, ColorYandexGold.copy(alpha = 0.6f))
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorYandexGold),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("🔑 Получить OAuth-токен Яндекса", color = ColorYandexGold, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "🟡 Войти через Яндекс ID (авто-токен)",
+                            color = Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
 
