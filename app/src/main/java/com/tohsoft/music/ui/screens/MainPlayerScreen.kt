@@ -2087,7 +2087,25 @@ fun YandexSyncModal(
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
+                val yandexDialogCtx = androidx.compose.ui.platform.LocalContext.current
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d")
+                            )
+                            yandexDialogCtx.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    enabled = !isSyncing,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, ColorYandexGold.copy(alpha = 0.6f))
+                ) {
+                    Text("🔑 Открыть Яндекс OAuth (получить токен)", color = ColorYandexGold, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(12.dp))
 
                 OutlinedTextField(
                     value = tokenInput,
@@ -4226,6 +4244,26 @@ fun StreamingAccountsModal(
                         fontSize = 11.sp,
                         modifier = Modifier.padding(10.dp)
                     )
+                }
+
+                if (selectedProvider == StreamingProvider.YANDEX) {
+                    val oauthCtx = androidx.compose.ui.platform.LocalContext.current
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d")
+                                )
+                                oauthCtx.startActivity(intent)
+                            } catch (_: Exception) {}
+                        },
+                        enabled = !isConnecting,
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, ColorYandexGold.copy(alpha = 0.6f))
+                    ) {
+                        Text("🔑 Получить OAuth-токен Яндекса", color = ColorYandexGold, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
 
                 OutlinedTextField(

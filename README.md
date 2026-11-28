@@ -88,7 +88,7 @@ MP3 Player Pro поддерживает прямую интеграцию с к�
 ### Как подключить личный аккаунт:
 1. **Получение персонального OAuth-токена:**
    * Откройте браузер на смартфоне или ПК и перейдите по ссылке авторизации Яндекс OAuth:
-     `https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b9da329cb3e14`
+     `https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d`
      *(Используется стандартный ClientID мобильного приложения Яндекс Музыки)*.
    * Войдите в свой Яндекс ID и нажмите **«Разрешить»**.
    * В адресной строке браузера скопируйте параметр `access_token=y0_AgAAAA...`.
