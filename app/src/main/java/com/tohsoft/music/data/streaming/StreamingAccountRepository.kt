@@ -376,20 +376,30 @@ class StreamingAccountRepository(private val context: Context) {
         val yandexRepo = YandexMusicRepository()
         val cleanToken = yandexRepo.sanitizeToken(tokenInput)
         if (cleanToken.isBlank()) throw Exception("Введите OAuth-токен Яндекс Музыки")
+        com.tohsoft.music.data.security.SecureTokenStorage
+            .getEncryptedPrefs(context, "mp3pro_yandex_secure_token")
+            .edit()
+            .putString("yandex_oauth_token", cleanToken)
+            .apply()
         val resolvedUid = yandexRepo.fetchAccountUidResult(cleanToken).getOrElse { throw it }
         val ids = yandexRepo.getLikedTrackIds(cleanToken, resolvedUid).getOrElse { throw it }
-        val metaList = yandexRepo.getTracksMetadata(cleanToken, ids.take(30)).getOrElse { emptyList() }
-        val songs = metaList.map { yt ->
-            val streamUrl = yandexRepo.getDownloadUrl(cleanToken, yt.id).getOrNull() ?: "https://api.music.yandex.net"
+        val allMeta = mutableListOf<com.tohsoft.music.data.yandex.YandexTrack>()
+        for (chunk in ids.chunked(100)) {
+            val batch = yandexRepo.getTracksMetadata(cleanToken, chunk).getOrNull().orEmpty()
+            allMeta.addAll(batch)
+        }
+        val songs = allMeta.map { yt ->
             Song(
                 id = -Math.abs(("ym_" + yt.id).hashCode().toLong()) - 40_000L,
                 title = yt.title,
                 artist = yt.artist,
                 album = yt.album,
                 durationMs = yt.durationMs,
-                contentUri = Uri.parse(streamUrl),
+                contentUri = Uri.parse("yandex://track/${yt.id}"),
                 coverUrl = yt.hdCoverUrl,
                 genre = "Яндекс Музыка",
+                year = yt.year ?: 2024,
+                bitrate = "320 kbps Stream",
                 folder = "YandexMusic",
                 streamingProvider = "yandex"
             )

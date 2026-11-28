@@ -159,6 +159,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val streamingAccountRepo = StreamingAccountRepository(application)
     private val coverArtRepository = CoverArtRepository(application)
     private val yandexRepository = YandexMusicRepository()
+    private val yandexSecurePrefs = com.tohsoft.music.data.security.SecureTokenStorage.getEncryptedPrefs(
+        application,
+        "mp3pro_yandex_secure_token"
+    )
+    private var streamResolveJob: Job? = null
     private val settingsBackupManager = SettingsBackupManager(application)
     private val audiophileDspProcessor = AudiophileDSPProcessor()
 
@@ -227,7 +232,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun buildRichMediaItem(song: Song): MediaItem {
+    private fun buildRichMediaItem(song: Song, overrideUri: Uri = song.contentUri): MediaItem {
         val artUri = song.coverUrl?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) } ?: song.albumArtUri
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -242,9 +247,66 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .build()
         return MediaItem.Builder()
             .setMediaId(song.id.toString())
-            .setUri(song.contentUri)
+            .setUri(overrideUri)
             .setMediaMetadata(metadata)
             .build()
+    }
+
+    private fun saveYandexStreamCache(songs: List<Song>) {
+        try {
+            val file = File(getApplication<Application>().filesDir, "yandex_stream_cache.json")
+            val arr = org.json.JSONArray()
+            songs.forEach { s ->
+                arr.put(
+                    org.json.JSONObject().apply {
+                        put("id", s.id)
+                        put("title", s.title)
+                        put("artist", s.artist)
+                        put("album", s.album)
+                        put("durationMs", s.durationMs)
+                        put("uri", s.contentUri.toString())
+                        put("coverUrl", s.coverUrl ?: "")
+                        put("year", s.year)
+                    }
+                )
+            }
+            file.writeText(arr.toString(), Charsets.UTF_8)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun loadYandexStreamCache(): List<Song> {
+        return try {
+            val file = File(getApplication<Application>().filesDir, "yandex_stream_cache.json")
+            if (!file.exists()) return emptyList()
+            val arr = org.json.JSONArray(file.readText(Charsets.UTF_8))
+            val out = mutableListOf<Song>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val uriStr = o.optString("uri", "")
+                if (uriStr.isBlank()) continue
+                out.add(
+                    Song(
+                        id = o.optLong("id", -40_000L - i),
+                        title = o.optString("title", "Без названия"),
+                        artist = o.optString("artist", "Яндекс Музыка"),
+                        album = o.optString("album", "Мне нравится"),
+                        durationMs = o.optLong("durationMs", 0L),
+                        contentUri = Uri.parse(uriStr),
+                        coverUrl = o.optString("coverUrl", "").takeIf { it.isNotBlank() },
+                        genre = "Яндекс Музыка",
+                        year = o.optInt("year", 2024),
+                        bitrate = "320 kbps Stream",
+                        folder = "YandexMusic",
+                        isBuiltIn = false,
+                        streamingProvider = "yandex"
+                    )
+                )
+            }
+            out
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun ensureMediaNotificationStarted() {
@@ -469,8 +531,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             val activeAccId = streamingAccountRepo.getActiveAccountId()
             val activeAccount = savedAccounts.firstOrNull { it.id == activeAccId }
             val accountSongs = activeAccount?.tracks ?: emptyList()
+            val cachedYandexSongs = withContext(Dispatchers.IO) { loadYandexStreamCache() }
 
-            val mergedRaw = trackDatabase.applyRecordsToSongs((accountSongs + rawList).distinctBy { it.id })
+            val mergedRaw = trackDatabase.applyRecordsToSongs((cachedYandexSongs + accountSongs + rawList).distinctBy { it.id })
             val loadedPlaylists = repository.loadUserPlaylists()
             val listWithCovers = mergedRaw.map { song ->
                 if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
@@ -486,7 +549,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
             val lastSongId = prefs.getLong("lastSongId", -1L)
             val lastPos = prefs.getLong("lastPositionMs", 0L)
-            val restoredSong = if (_uiState.value.rememberPlayback && lastSongId > 0) {
+            val restoredSong = if (_uiState.value.rememberPlayback && lastSongId != -1L) {
                 sortedFiltered.firstOrNull { it.id == lastSongId }
             } else null
 
@@ -505,7 +568,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
 
-            if (restoredSong != null && lastPos > 0) {
+            if (restoredSong != null && lastPos > 0 && restoredSong.contentUri.scheme != "yandex") {
                 try {
                     exoPlayer.setMediaItem(buildRichMediaItem(restoredSong))
                     exoPlayer.prepare()
@@ -548,7 +611,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
             val savedAccounts = streamingAccountRepo.loadSavedAccounts()
             val activeAcc = savedAccounts.firstOrNull { it.id == _uiState.value.activeAccountId }
-            val mergedRaw = trackDatabase.applyRecordsToSongs(((activeAcc?.tracks ?: emptyList()) + rawList).distinctBy { it.id })
+            val cachedYandexSongs = withContext(Dispatchers.IO) { loadYandexStreamCache() }
+            val mergedRaw = trackDatabase.applyRecordsToSongs((cachedYandexSongs + (activeAcc?.tracks ?: emptyList()) + rawList).distinctBy { it.id })
             val listWithCovers = mergedRaw.map { song ->
                 if (song.coverUrl == null && (song.albumArtUri == null || song.albumArtUri.toString().isBlank())) {
                     val gen = coverArtRepository.generateProceduralCover(song.id, song.title, song.artist)
@@ -578,9 +642,59 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun playSong(song: Song) {
+        streamResolveJob?.cancel()
+        if (song.contentUri.scheme == "yandex") {
+            val yandexTrackId = song.contentUri.lastPathSegment
+                ?.takeIf { it.isNotBlank() }
+                ?: song.contentUri.toString().substringAfter("yandex://track/", "").trim()
+
+            _uiState.update {
+                it.copy(
+                    currentSong = song,
+                    isPlaying = false,
+                    currentPositionMs = 0,
+                    durationMs = song.durationMs,
+                    statusToastMessage = "Потоковая загрузка: ${song.artist} — ${song.title}..."
+                )
+            }
+
+            streamResolveJob = viewModelScope.launch {
+                val savedToken = yandexSecurePrefs.getString("yandex_oauth_token", "").orEmpty()
+                    .ifBlank {
+                        streamingAccountRepo.loadSavedAccounts()
+                            .firstOrNull { it.providerId == "yandex" }
+                            ?.credential
+                            .orEmpty()
+                    }
+                if (savedToken.isBlank() || yandexTrackId.isBlank()) {
+                    _uiState.update {
+                        it.copy(statusToastMessage = "Нужна повторная авторизация Яндекс ID для потокового воспроизведения")
+                    }
+                    return@launch
+                }
+
+                val urlResult = yandexRepository.getDownloadUrl(savedToken, yandexTrackId)
+                val directUrl = urlResult.getOrNull()
+                if (directUrl.isNullOrBlank()) {
+                    val reason = urlResult.exceptionOrNull()?.message ?: "поток недоступен"
+                    _uiState.update {
+                        it.copy(statusToastMessage = "Ошибка потока Яндекс: $reason")
+                    }
+                    return@launch
+                }
+
+                startPlaybackWithUri(song, Uri.parse(directUrl))
+            }
+            return
+        }
+
+        startPlaybackWithUri(song, song.contentUri)
+    }
+
+    private fun startPlaybackWithUri(song: Song, playableUri: Uri) {
         try {
             MediaNotificationService.attachPlayer(exoPlayer)
-            val mediaItem = buildRichMediaItem(song)
+            val mediaItem = buildRichMediaItem(song, playableUri)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
 
@@ -1828,7 +1942,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun syncYandexMusic(token: String, userId: String = "") {
+    fun syncYandexMusic(token: String, userId: String = "", downloadOffline: Boolean = false) {
         viewModelScope.launch {
             val cleanToken = yandexRepository.sanitizeToken(token)
             if (cleanToken.isBlank()) {
@@ -1840,6 +1954,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 return@launch
             }
+
+            // Сохраняем токен в EncryptedSharedPreferences для потокового воспроизведения без скачивания
+            yandexSecurePrefs.edit().putString("yandex_oauth_token", cleanToken).apply()
 
             _uiState.update {
                 it.copy(
@@ -1870,8 +1987,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
                 _uiState.update {
                     it.copy(
-                        yandexSyncProgress = 15,
-                        yandexSyncStatus = "Яндекс ID #$resolvedUid подключён. Загрузка «Мне нравится»..."
+                        yandexSyncProgress = 12,
+                        yandexSyncStatus = "Яндекс ID #$resolvedUid подключён. Загрузка списка «Мне нравится»..."
                     )
                 }
 
@@ -1898,21 +2015,68 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     return@launch
                 }
 
-                _uiState.update {
-                    it.copy(
-                        yandexSyncProgress = 25,
-                        yandexSyncStatus = "Найдено ${ids.size} треков. Загрузка данных..."
-                    )
+                // Загружаем метаданные ВСЕХ треков пачками по 100 шт. (без ограничения в 50 треков)
+                val allTracks = mutableListOf<com.tohsoft.music.data.yandex.YandexTrack>()
+                val chunks = ids.chunked(100)
+                chunks.forEachIndexed { chunkIdx, chunkIds ->
+                    val pct = if (downloadOffline) {
+                        15 + ((chunkIdx + 1) * 15) / chunks.size.coerceAtLeast(1)
+                    } else {
+                        15 + ((chunkIdx + 1) * 80) / chunks.size.coerceAtLeast(1)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            yandexSyncProgress = pct,
+                            yandexSyncStatus = "Загрузка каталога (${allTracks.size}/${ids.size} треков)..."
+                        )
+                    }
+                    val batch = yandexRepository.getTracksMetadata(cleanToken, chunkIds).getOrNull().orEmpty()
+                    allTracks.addAll(batch)
                 }
 
-                val tracksResult = yandexRepository.getTracksMetadata(cleanToken, ids.take(50))
-                val tracks = tracksResult.getOrNull() ?: emptyList()
+                if (!downloadOffline) {
+                    // Потоковый режим: 0 МБ на диске, свежая ссылка MP3 320 kbps запрашивается в момент воспроизведения
+                    val streamSongs = allTracks.map { yt ->
+                        Song(
+                            id = -Math.abs(("ym_" + yt.id).hashCode().toLong()) - 40_000L,
+                            title = yt.title,
+                            artist = yt.artist,
+                            album = "Мне нравится • ${yt.album}",
+                            durationMs = yt.durationMs,
+                            contentUri = Uri.parse("yandex://track/${yt.id}"),
+                            coverUrl = yt.hdCoverUrl,
+                            genre = "Яндекс Музыка",
+                            year = yt.year ?: 2024,
+                            bitrate = "320 kbps Stream",
+                            folder = "YandexMusic",
+                            isBuiltIn = false,
+                            streamingProvider = "yandex"
+                        )
+                    }
 
+                    withContext(Dispatchers.IO) { saveYandexStreamCache(streamSongs) }
+
+                    _uiState.update { state ->
+                        val nonOldYandex = state.songs.filterNot { it.contentUri.scheme == "yandex" }
+                        val combined = (streamSongs + nonOldYandex).distinctBy { it.id }
+                        val sorted = recomputeFilteredSongs(combined)
+                        state.copy(
+                            songs = combined,
+                            filteredSongs = sorted,
+                            isYandexSyncing = false,
+                            yandexSyncProgress = 100,
+                            yandexSyncStatus = "Успешно подключено ${streamSongs.size} треков (потоково через сеть, 0 МБ на диске)!"
+                        )
+                    }
+                    return@launch
+                }
+
+                // Офлайн-режим: скачивание MP3 на устройство с пропуском уже сохранённых
                 val context = getApplication<Application>()
                 val downloadedSongs = mutableListOf<Song>()
-                val totalToDownload = tracks.size.coerceAtLeast(1)
+                val totalToDownload = allTracks.size.coerceAtLeast(1)
 
-                tracks.forEachIndexed { idx, yt ->
+                allTracks.forEachIndexed { idx, yt ->
                     val directUrl = yandexRepository.getDownloadUrl(cleanToken, yt.id).getOrNull()
                     val savedUri = if (!directUrl.isNullOrBlank()) {
                         yandexRepository.downloadTrackToLocalStorage(context, yt, directUrl).getOrNull()
@@ -1928,28 +2092,28 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
                     downloadedSongs.add(
                         Song(
-                            id = yt.id.hashCode().toLong(),
+                            id = -Math.abs(("ym_" + yt.id).hashCode().toLong()) - 40_000L,
                             title = yt.title,
                             artist = yt.artist,
                             album = "Мне нравится • ${yt.album}",
                             durationMs = yt.durationMs,
-                            contentUri = savedUri ?: Uri.parse("https://api.music.yandex.net"),
+                            contentUri = savedUri ?: Uri.parse("yandex://track/${yt.id}"),
                             coverUrl = yt.hdCoverUrl,
                             genre = "Яндекс Музыка",
                             year = yt.year ?: 2024,
-                            bitrate = "320 kbps MP3",
+                            bitrate = if (savedUri != null) "320 kbps MP3" else "320 kbps Stream",
                             folder = "YandexMusic",
-                            isBuiltIn = false
+                            isBuiltIn = false,
+                            streamingProvider = "yandex"
                         )
                     )
                 }
 
-                // Повторно сканируем физическую папку /Music/YandexMusic/Мне нравится
                 val rescanned = repository.loadDeviceSongs(triggerMediaScanFirst = true)
 
                 _uiState.update { state ->
                     val combined = (rescanned + downloadedSongs + state.songs).distinctBy { it.id }
-                    val sorted = sortTrackList(filterAndProcessSongs(combined, state.hideShortSongs, state.blacklistedFolders), state.sortMode)
+                    val sorted = recomputeFilteredSongs(combined)
                     state.copy(
                         songs = combined,
                         filteredSongs = sorted,
@@ -1970,6 +2134,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     override fun onCleared() {
+        streamResolveJob?.cancel()
         unbindAudioSession()
         progressJob?.cancel()
         sleepTimerJob?.cancel()

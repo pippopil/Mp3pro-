@@ -108,7 +108,7 @@ fun MainPlayerScreen(
     onCycleCoverStyle: () -> Unit,
     onOpenYandexModal: () -> Unit,
     onCloseYandexModal: () -> Unit = {},
-    onSyncYandex: (String) -> Unit,
+    onSyncYandex: (String, Boolean) -> Unit,
     onSearchCover: () -> Unit,
     onSelectGenreFilter: (String) -> Unit,
     onSortChange: (com.tohsoft.music.viewmodel.TrackSortMode) -> Unit = {},
@@ -2065,9 +2065,10 @@ fun YandexSyncModal(
     progress: Int,
     statusText: String,
     onDismiss: () -> Unit,
-    onSync: (String) -> Unit
+    onSync: (String, Boolean) -> Unit
 ) {
     var tokenInput by remember { mutableStateOf("") }
+    var downloadOffline by remember { mutableStateOf(false) }
     var showYandexWebView by remember { mutableStateOf(false) }
 
     if (showYandexWebView) {
@@ -2075,7 +2076,7 @@ fun YandexSyncModal(
             onTokenCaptured = { capturedToken ->
                 showYandexWebView = false
                 tokenInput = capturedToken
-                onSync(capturedToken)
+                onSync(capturedToken, downloadOffline)
             },
             onDismiss = { showYandexWebView = false }
         )
@@ -2094,11 +2095,58 @@ fun YandexSyncModal(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Синхронизация библиотеки «Мне нравится» и загрузка MP3 высокого качества (320 kbps) в локальное хранилище телефона.",
+                    text = if (!downloadOffline) {
+                        "Загружает всю вашу медиатеку «Мне нравится» за пару секунд и воспроизводит треки 320 kbps напрямую через сеть без расхода памяти телефона."
+                    } else {
+                        "Скачивает все треки из «Мне нравится» в MP3 320 kbps в папку /Music/YandexMusic для прослушивания без интернета."
+                    },
                     color = ColorTextMuted,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
                 )
+                Spacer(Modifier.height(10.dp))
+
+                // Переключатель режима: Потоково (по умолчанию) / Скачать офлайн
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (!downloadOffline) Color(0x3300C996) else Color(0x14FFFFFF),
+                        border = BorderStroke(1.dp, if (!downloadOffline) ColorTurquoise else Color(0x22FFFFFF)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = !isSyncing) { downloadOffline = false }
+                    ) {
+                        Text(
+                            text = "⚡ Потоково (сеть)",
+                            color = if (!downloadOffline) ColorTurquoise else ColorTextMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (downloadOffline) Color(0x33FFCC00) else Color(0x14FFFFFF),
+                        border = BorderStroke(1.dp, if (downloadOffline) ColorYandexGold else Color(0x22FFFFFF)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = !isSyncing) { downloadOffline = true }
+                    ) {
+                        Text(
+                            text = "💾 Скачать MP3",
+                            color = if (downloadOffline) ColorYandexGold else ColorTextMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp)
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = { showYandexWebView = true },
@@ -2160,12 +2208,12 @@ fun YandexSyncModal(
         },
         confirmButton = {
             Button(
-                onClick = { onSync(tokenInput) },
+                onClick = { onSync(tokenInput, downloadOffline) },
                 enabled = !isSyncing,
                 colors = ButtonDefaults.buttonColors(containerColor = ColorYandexGold)
             ) {
                 Text(
-                    text = if (isSyncing) "Загрузка..." else "Синхронизировать",
+                    text = if (isSyncing) "Загрузка..." else if (downloadOffline) "Скачать все" else "Подключить все",
                     color = Color.Black,
                     fontWeight = FontWeight.Bold
                 )

@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onCycleCoverStyle = { viewModel.cycleCoverStyle() },
                     onOpenYandexModal = { viewModel.openYandexModal(true) },
                     onCloseYandexModal = { viewModel.openYandexModal(false) },
-                    onSyncYandex = { token -> viewModel.syncYandexMusic(token) },
+                    onSyncYandex = { token, downloadOffline -> viewModel.syncYandexMusic(token, downloadOffline = downloadOffline) },
                     onSearchCover = { viewModel.searchCoverForCurrentSong() },
                     onSelectGenreFilter = { genre -> viewModel.setGenreFilter(genre) },
                     onSortChange = { mode -> viewModel.setSortMode(mode) },
