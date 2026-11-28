@@ -1156,7 +1156,7 @@ fun EqualizerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Библиотека пресетов (36)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Библиотека пресетов (${EqualizerManager.PRESETS.size})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         TextButton(onClick = { isPresetModalOpen = false }) {
                             Text("Закрыть", color = ColorTurquoise)
                         }

@@ -137,6 +137,18 @@ class EqualizerManager(private var audioSessionId: Int) {
             EqPreset("Gaming Dynamic (Игры и экшн)", "Акустика", listOf(8, 7, 3, -1, -2, 2, 5, 7, 8, 9), 70, 55, PresetReverb.PRESET_LARGEHALL, 65, -2.0f),
 
             // Устройства
+            EqPreset(
+                "Changan CS55 Plus 2024 (6 дин.)", "Устройства",
+                listOf(-3, 3, 1, -3, -1, 1, 2, 1, 2, 4),
+                25, 0, PresetReverb.PRESET_NONE, 35, -2.5f,
+                listOf(
+                    EqParametricBand(1, 65, 3.0f, 1.10f, "#EF4444"),
+                    EqParametricBand(2, 240, -3.0f, 1.45f, "#EAB308"),
+                    EqParametricBand(3, 2200, 2.2f, 1.15f, "#10B981"),
+                    EqParametricBand(4, 7500, 1.5f, 1.30f, "#06B6D4"),
+                    EqParametricBand(5, 14500, 4.0f, 0.85f, "#A855F7")
+                )
+            ),
             EqPreset("In-Ear Earphones (Вакуумные затычки)", "Устройства", listOf(3, 2, -1, -1, 1, 2, 4, 5, 5, 6), 30, 35, PresetReverb.PRESET_SMALLROOM, 35, 0.0f),
             EqPreset("Over-Ear Studio (Полноразмерные)", "Устройства", listOf(1, 2, 1, 0, 0, 1, 2, 3, 3, 4), 25, 25, PresetReverb.PRESET_SMALLROOM, 25, 0.0f),
             EqPreset("Small Bluetooth Speaker (Портативная колонка)", "Устройства", listOf(6, 5, 3, 1, 2, 3, 4, 5, 4, 3), 40, 20, PresetReverb.PRESET_NONE, 30, 1.0f),
